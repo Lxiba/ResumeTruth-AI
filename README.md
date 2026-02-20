@@ -1,10 +1,12 @@
+<div align="center">
+<img width="146" height="180" alt="logo" src="https://github.com/user-attachments/assets/b7070a79-0cf6-4656-83d4-e4d932400f7f" />
+
 # ResumeTruth AI
 
 **ResumeTruth AI** is an AI-powered resume optimizer that analyzes your resume against a real job description and gives you an honest, actionable assessment — not generic tips.
 
-Live at: [resumetruth-ai.vercel.app](https://resumetruth-ai.vercel.app)
-
----
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Visit%20Site-305CDE?style=for-the-badge&logoColor=white)](https://resumetruth-ai.vercel.app)
+</div>
 
 ## What It Does
 
