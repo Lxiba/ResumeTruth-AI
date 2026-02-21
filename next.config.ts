@@ -2,8 +2,14 @@ import type { NextConfig } from "next"
 import path from "path"
 
 const nextConfig: NextConfig = {
-  // pdf-parse uses Node.js built-ins; exclude from edge/browser bundles
-  serverExternalPackages: ["pdf-parse", "mammoth"],
+  // Keep these packages out of the browser/edge bundle — Node.js only
+  serverExternalPackages: [
+    "pdf-parse",
+    "mammoth",
+    "canvas",
+    "pdfjs-dist",
+    "tesseract.js",
+  ],
   turbopack: {
     root: path.resolve(__dirname),
   },

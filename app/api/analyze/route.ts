@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { analyzeResume } from "@/lib/openrouter"
 import type { JobInfo } from "@/types"
 
+// Allow up to 60 seconds — LLM inference can be slow
+export const maxDuration = 60
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -28,8 +31,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result)
   } catch (error) {
     console.error("Analyze error:", error)
-    const message =
+
+    let message =
       error instanceof Error ? error.message : "Analysis failed. Please try again."
+
+    // Surface a clearer message when the API key is missing in the deployment environment
+    if (message.includes("HUGGINGFACE_API_KEY")) {
+      message =
+        "Server configuration error: the Hugging Face API key is not set. " +
+        "If you deployed to Vercel, add HUGGINGFACE_API_KEY to your project's " +
+        "Environment Variables in the Vercel dashboard."
+    }
+
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
