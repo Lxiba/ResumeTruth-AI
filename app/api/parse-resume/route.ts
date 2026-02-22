@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
+import path from "path"
+import { pathToFileURL } from "url"
 
 export const runtime  = "nodejs"
 export const maxDuration = 60
@@ -7,6 +9,15 @@ const MAX_PAGES          = 10
 const MIN_CHARS_PER_PAGE = 50      // below this → treat page as scanned
 const TOO_LONG_CHARS     = 8_000   // ~1,200–1,500 words ≈ 2 printed pages
 const OCR_TIMEOUT_MS     = 20_000  // hard cap per page
+
+// Resolve the pdfjs worker path once (works locally and on Vercel)
+// pdfjs-dist v5 requires the `legacy` build in Node.js environments
+// (the standard build requires browser APIs like DOMMatrix).
+const PDFJS_WORKER_PATH = path.resolve(
+  process.cwd(),
+  "node_modules", "pdfjs-dist", "legacy", "build", "pdf.worker.min.mjs"
+)
+const PDFJS_WORKER_URL  = pathToFileURL(PDFJS_WORKER_PATH).href
 
 // ─── Pure-JS RGBA → 24-bit BMP ───────────────────────────────────────────────
 // BMP is trivially decoded by Tesseract's Leptonica engine — zero extra deps.
@@ -23,11 +34,11 @@ function rgbaToBmp(rgba: Uint8ClampedArray, w: number, h: number): Buffer {
   buf.writeInt32LE(w, 18)
   buf.writeInt32LE(-h, 22)                // negative = top-down rows
   buf.writeUInt16LE(1, 26)                // color planes
-  buf.writeUInt16LE(24, 28)               // 24-bit RGB
-  buf.writeUInt32LE(0, 30)                // BI_RGB (no compression)
+  buf.writeUInt16LE(24, 28)              // 24-bit RGB
+  buf.writeUInt32LE(0, 30)               // BI_RGB (no compression)
   buf.writeUInt32LE(pixelBytes, 34)
-  buf.writeInt32LE(2835, 38)              // ~72 DPI H
-  buf.writeInt32LE(2835, 42)              // ~72 DPI V
+  buf.writeInt32LE(2835, 38)             // ~72 DPI H
+  buf.writeInt32LE(2835, 42)             // ~72 DPI V
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -119,7 +130,7 @@ function makeCtx(self: StubCanvas): Record<string, any> {
     }),
 
     // ── image — what we actually care about ──────────────────────────────────
-    drawImage(img: any)      { capture(img) },
+    drawImage(img: any)        { capture(img) },
     putImageData(imgData: any) {
       if (!imgData?.data || !imgData.width || !imgData.height) return
       const d = imgData.data instanceof Uint8ClampedArray
@@ -138,7 +149,7 @@ function makeCtx(self: StubCanvas): Record<string, any> {
 
     // ── gradient / pattern ───────────────────────────────────────────────────
     createLinearGradient: () => grad, createRadialGradient: () => grad,
-    createConicGradient: () => grad,  createPattern: () => null,
+    createConicGradient:  () => grad, createPattern: () => null,
 
     // ── line dash ────────────────────────────────────────────────────────────
     setLineDash: noop, getLineDash: () => [] as number[],
@@ -156,84 +167,47 @@ class StubCanvasFactory {
   destroy(cc: { canvas: StubCanvas }) { cc.canvas.images = [] }
 }
 
-// ─── Resolve pdfjs-dist regardless of module shape ───────────────────────────
-// Dynamic import can return either a named-export namespace or a .default object.
-// If GlobalWorkerOptions is missing on the namespace root, try .default.
-function resolvePdfjs(mod: any) {
-  if (typeof mod?.getDocument === "function") return mod
-  if (typeof mod?.default?.getDocument === "function") return mod.default
-  throw new Error("pdfjs-dist: could not resolve getDocument")
-}
-
-// ─── Tier 1: pdf-parse (primary — fast, well-tested for text PDFs) ────────────
-// Handles both pdf-parse v1 (default function) and v2 (PDFParse class).
-async function extractWithPdfParse(buffer: Buffer): Promise<string> {
-  const mod = await import("pdf-parse") as any
-
-  // v2.x — named PDFParse class
-  if (mod.PDFParse) {
-    const parser = new mod.PDFParse({ data: buffer })
-    const result = await parser.getText()
-    await parser.destroy?.()
-    return result.text?.trim() ?? ""
-  }
-
-  // v1.x — default function export
-  const fn = typeof mod.default === "function" ? mod.default
-           : typeof mod          === "function" ? mod
-           : null
-  if (fn) {
-    const data = await fn(buffer)
-    return data.text?.trim() ?? ""
-  }
-
-  throw new Error("pdf-parse: unrecognised module shape")
-}
-
-// ─── Process a PDF: text layer + OCR fallback — single document open ──────────
+// ─── Process a PDF: text layer + OCR fallback ────────────────────────────────
 async function processPdf(buffer: Buffer): Promise<string> {
-  // ── Tier 1a: pdf-parse ──────────────────────────────────────────────────────
-  let quickText = ""
-  try {
-    quickText = await extractWithPdfParse(buffer)
-  } catch (e) {
-    console.error("[parse-resume] pdf-parse error:", e)
-  }
 
-  // If pdf-parse gave solid text, skip pdfjs entirely (fast path)
-  if (quickText.length >= MIN_CHARS_PER_PAGE * 3) return quickText
-
-  // ── Tiers 1b + 2: pdfjs-dist text layer + canvas-stub OCR ──────────────────
+  // ── Load pdfjs-dist legacy build (Node.js compatible) ─────────────────────
+  // The standard build requires browser APIs (DOMMatrix, etc.).
+  // The legacy build ships a polyfilled version that works in pure Node.js.
   let pdfjs: any
   try {
-    pdfjs = resolvePdfjs(await import("pdfjs-dist"))
+    pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs" as any)
+    // The legacy build may be a namespace (named exports) or wrapped in .default
+    if (typeof pdfjs.getDocument !== "function" && typeof pdfjs.default?.getDocument === "function") {
+      pdfjs = pdfjs.default
+    }
+    // Point the worker at the actual worker file on disk.
+    // Using pathToFileURL handles Windows backslashes and drive letters correctly.
+    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL
   } catch (e) {
     console.error("[parse-resume] pdfjs-dist import error:", e)
-    // If pdfjs-dist fails to import, return whatever pdf-parse gave us
-    return quickText
+    return ""
   }
 
-  pdfjs.GlobalWorkerOptions.workerSrc = ""
-
+  // ── Open the PDF document ──────────────────────────────────────────────────
   let pdf: any
   try {
     pdf = await pdfjs.getDocument({
-      data: new Uint8Array(buffer),
-      useSystemFonts:  false,   // avoids host font lookups
-      disableRange:    true,    // we have the full buffer already
-      disableStream:   true,
-      verbosity:       0,       // suppress warnings
+      data:          new Uint8Array(buffer),
+      useSystemFonts: false,
+      disableRange:  true,
+      disableStream: true,
+      verbosity:     0,
     }).promise
   } catch (e) {
     console.error("[parse-resume] pdfjs getDocument error:", e)
-    return quickText
+    return ""
   }
 
   const total      = Math.min(pdf.numPages, MAX_PAGES)
   const pageTexts  = new Array<string>(total).fill("")
   const needsOcr: number[] = []
 
-  // ── Tier 1b: extract text layer from every page ─────────────────────────────
+  // ── Tier 1: Extract text layer from every page ────────────────────────────
   for (let n = 1; n <= total; n++) {
     try {
       const page    = await pdf.getPage(n)
@@ -251,24 +225,22 @@ async function processPdf(buffer: Buffer): Promise<string> {
     }
   }
 
-  // If the text layer was already solid, no need for OCR
+  // If every page had solid text, skip OCR entirely
   const textLayerResult = pageTexts.join("\n").trim()
   if (needsOcr.length === 0) {
     await pdf.destroy().catch(() => {})
-    return textLayerResult.length > quickText.length ? textLayerResult : quickText
+    return textLayerResult
   }
 
-  // ── Tier 2: OCR scanned pages via canvas-stub rendering + tesseract ──────────
+  // ── Tier 2: OCR scanned pages via canvas-stub rendering + tesseract ────────
   let worker: any
   try {
     const { createWorker } = await import("tesseract.js")
     worker = await createWorker("eng")
   } catch (e) {
     console.error("[parse-resume] tesseract init error:", e)
-    // OCR unavailable — return best text we have
     await pdf.destroy().catch(() => {})
-    const best = textLayerResult.length > quickText.length ? textLayerResult : quickText
-    return best
+    return textLayerResult
   }
 
   const factory = new StubCanvasFactory()
@@ -322,9 +294,8 @@ async function processPdf(buffer: Buffer): Promise<string> {
   }
 
   const ocrResult = pageTexts.join("\n").trim()
-  // Return whichever extraction gave the most text
-  return [quickText, textLayerResult, ocrResult].reduce((a, b) =>
-    b.length > a.length ? b : a)
+  // Return whichever tier produced more text
+  return ocrResult.length > textLayerResult.length ? ocrResult : textLayerResult
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────

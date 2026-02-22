@@ -2,18 +2,19 @@ import type { NextConfig } from "next"
 import path from "path"
 
 const nextConfig: NextConfig = {
-  // Keep these packages out of the browser/edge bundle — Node.js only
+  // Keep these packages out of the browser/edge bundle — Node.js only.
+  // "pdfjs-dist" covers both the main entry and any subpath imports
+  // (e.g. pdfjs-dist/legacy/build/pdf.mjs) from that package.
   serverExternalPackages: [
-    "pdf-parse",
     "mammoth",
     "pdfjs-dist",
     "tesseract.js",
   ],
   webpack: (config: any, { isServer }: { isServer: boolean }) => {
     if (isServer) {
-      // canvas is in optionalDependencies and is not available on Vercel.
-      // Aliasing to false prevents webpack from attempting to bundle it,
-      // which would otherwise cause a build error even with try/catch imports.
+      // canvas is in optionalDependencies and may not be available in all
+      // deployment environments. Aliasing to false prevents webpack from
+      // attempting to bundle it, which would otherwise cause a build error.
       config.resolve.alias = {
         ...config.resolve.alias,
         canvas: false,
