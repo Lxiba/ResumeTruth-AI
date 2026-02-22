@@ -24,12 +24,13 @@ Most resume tools give vague, cookie-cutter feedback. ResumeTruth AI reads your 
 | **Full Optimization Mode** | AI rewrites your entire resume — preserving your original structure — with ATS keywords injected and impact statements strengthened, downloadable as a PDF |
 | **Annotated Review Mode** | Keeps your original resume untouched and overlays color-coded inline suggestions (remove / replace / reformat) so you can make edits yourself and retain your embedded links |
 | **Cover Letter Generator** | Produces a professionally formatted cover letter with a four-paragraph structure, real metrics pulled from your resume, and recipient details extracted from the job posting |
+| **Resume Length Check** | Detects resumes over 2 pages and gives you the choice to condense automatically or keep the full length |
 
 ---
 
 ## How It Works
 
-1. **Upload your resume** — drag and drop or browse for a PDF or DOCX file
+1. **Upload your resume** — drag and drop or browse for a PDF, DOCX, TXT, or RTF file
 2. **Enter the job details** — paste the job description, job title, and company name
 3. **Choose a mode** — Full Optimization (AI rewrites it) or Annotated Review (AI marks it up)
 4. **Toggle cover letter** — optionally generate a tailored cover letter alongside your resume
@@ -49,7 +50,7 @@ The interface is built with **Next.js** using the App Router and **TypeScript** 
 ### Key Components
 
 **Input**
-- `upload-zone.tsx` — Drag-and-drop file uploader with support for PDF and DOCX
+- `upload-zone.tsx` — Drag-and-drop file uploader with support for PDF, DOCX, TXT, and RTF
 - `job-form.tsx` — Fields for job title, company, and the job description textarea
 - `generate-button.tsx` — Submit trigger that kicks off the analysis
 
@@ -73,10 +74,15 @@ The backend runs entirely on **Next.js API Routes** (serverless), with no separa
 
 **`POST /api/parse-resume`**
 
-Accepts a file upload and extracts plain text from it.
-- PDF files are processed with **pdf-parse**
-- DOCX files are processed with **mammoth**
-- Returns the extracted text to the frontend for inclusion in the analysis request
+Accepts a file upload and extracts plain text from it using a 3-tier pipeline:
+
+| Tier | Method | Handles |
+|---|---|---|
+| 1 | **OCR.space API** (cloud) | All PDFs — text-layer and fully scanned/image-based |
+| 2 | **pdfjs-dist** (local) | Text-layer PDFs if OCR.space is unavailable |
+| 3 | **Tesseract.js WASM** (local) | Scanned pages if both cloud and text-layer extraction fail |
+
+DOCX files are handled by **mammoth**, and TXT / RTF files are decoded directly. The endpoint also returns a `tooLong` flag when the extracted text exceeds ~1,200 words (2 printed pages), prompting the user to choose between condensing or keeping the full length.
 
 **`POST /api/analyze`**
 
@@ -90,7 +96,7 @@ Sends requests to the **Hugging Face Inference API** using the **Qwen 2.5 72B In
 
 **`lib/prompts.ts`** — Prompt engineering
 
-Builds the system and user prompts sent to the AI. There are separate prompt builders for Full Optimization mode and Annotated Review mode, each with specific instructions on output format and behavior. Cover letter instructions are injected conditionally.
+Builds the system and user prompts sent to the AI. There are separate prompt builders for Full Optimization mode and Annotated Review mode, each with specific instructions on output format and behavior. Condensing instructions and cover letter instructions are injected conditionally. A format-detection pass reads the resume's bullet style, section header casing, and date format so the AI preserves the original document's formatting exactly.
 
 **`lib/pdf-generator.ts`** — PDF creation
 
@@ -101,15 +107,17 @@ Uses **pdf-lib** to produce A4 PDFs on the server. Handles heading detection, fo
 ## Tech Stack
 
 **Framework**
-- Next.js (App Router) with React and TypeScript
+- Next.js 16 (App Router) with React 19 and TypeScript
 
 **AI**
 - Hugging Face Inference API — Qwen 2.5 72B Instruct model
 
-**Document Processing**
-- pdf-parse — extracts text from PDF files
-- mammoth — extracts text from DOCX files
-- pdf-lib — generates downloadable PDF files
+**Document Parsing**
+- OCR.space API — cloud OCR for text and scanned PDFs
+- pdfjs-dist (legacy Node.js build) — local text-layer PDF extraction
+- Tesseract.js (WASM) — local OCR fallback for scanned pages
+- mammoth — DOCX text extraction
+- pdf-lib — downloadable PDF generation
 
 **Frontend**
 - Tailwind CSS — utility-first styling
@@ -117,7 +125,7 @@ Uses **pdf-lib** to produce A4 PDFs on the server. Handles heading detection, fo
 - Lucide React — icon library
 
 **Deployment**
-- Vercel
+- Vercel (serverless, Node.js runtime)
 
 ---
 
@@ -143,7 +151,7 @@ ResumeTruth AI/
 │   ├── openrouter.ts               # Hugging Face API integration
 │   ├── prompts.ts                  # AI prompt builders
 │   ├── pdf-generator.ts            # PDF export utility
-│   └── utils.ts                   # Shared utilities
+│   └── utils.ts                    # Shared utilities
 └── types/
     └── index.ts                    # TypeScript type definitions
 ```
@@ -153,9 +161,15 @@ ResumeTruth AI/
 ## Data Flow
 
 ```
-User uploads resume
+User uploads resume (PDF / DOCX / TXT / RTF)
         ↓
-POST /api/parse-resume  →  pdf-parse / mammoth  →  plain text
+POST /api/parse-resume
+  └─ Tier 1: OCR.space API        (cloud, text + scanned PDFs)
+  └─ Tier 2: pdfjs-dist local     (text-layer fallback)
+  └─ Tier 3: Tesseract.js WASM    (scanned-page OCR fallback)
+  └─ mammoth                      (DOCX)
+        ↓
+Resume length check — if > 2 pages: prompt user to condense or keep full
         ↓
 User submits job details + selects mode
         ↓
@@ -175,3 +189,13 @@ Results are persisted in **sessionStorage** so they survive page refreshes withi
 | Variable | Purpose |
 |---|---|
 | `HUGGINGFACE_API_KEY` | API key for the Hugging Face Inference endpoint |
+| `OCR_SPACE_API_KEY` | API key for the OCR.space PDF extraction service |
+
+For local development, create a `.env.local` file in the project root:
+
+```env
+HUGGINGFACE_API_KEY=your_huggingface_api_key_here
+OCR_SPACE_API_KEY=your_ocr_space_api_key_here
+```
+
+For production on Vercel, add both keys under **Project → Settings → Environment Variables**.
