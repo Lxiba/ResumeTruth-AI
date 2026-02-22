@@ -71,6 +71,25 @@ export default function HomePage() {
     setJobInfo((prev) => ({ ...prev, optimizeMode: mode }))
   }
 
+  // Safely parse JSON from a fetch response.
+  // If the server returns a non-JSON body (e.g. a Vercel HTML error page on
+  // crash or timeout), this throws a friendly message instead of a raw
+  // "Unexpected token" parse error.
+  const safeJson = async (response: Response): Promise<any> => {
+    const text = await response.text()
+    try {
+      return JSON.parse(text)
+    } catch {
+      if (response.status === 504 || response.status === 524) {
+        throw new Error("The request timed out. Please try again.")
+      }
+      if (response.status >= 500) {
+        throw new Error("A server error occurred. Please try again in a moment.")
+      }
+      throw new Error("Unexpected server response. Please try again.")
+    }
+  }
+
   const handleGenerate = async () => {
     setError(null)
 
@@ -99,7 +118,7 @@ export default function HomePage() {
         body: formData,
       })
 
-      const parseData = await parseResponse.json()
+      const parseData = await safeJson(parseResponse)
       if (!parseResponse.ok) {
         throw new Error(parseData.error || "Failed to parse resume")
       }
@@ -113,7 +132,7 @@ export default function HomePage() {
         body: JSON.stringify({ resumeText, jobInfo }),
       })
 
-      const result = await analyzeResponse.json()
+      const result = await safeJson(analyzeResponse)
       if (!analyzeResponse.ok) {
         throw new Error(result.error || "Analysis failed")
       }

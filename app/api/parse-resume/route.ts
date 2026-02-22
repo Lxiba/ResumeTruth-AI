@@ -12,22 +12,10 @@ async function extractWithPdfParse(buffer: Buffer): Promise<string> {
   return result.text?.trim() ?? ""
 }
 
-// ─── Tier 2 & 3: pdfjs-dist direct + ML OCR via tesseract.js ────────────────
-// Used when pdf-parse returns empty (scanned / image-based PDFs)
-async function extractWithOCR(buffer: Buffer): Promise<string> {
-  // Dynamically import to allow graceful failure if native bindings are missing
-  const [pdfjsModule, canvasModule, tesseractModule] = await Promise.all([
-    import("pdfjs-dist"),
-    import("canvas"),
-    import("tesseract.js"),
-  ])
-
-  const pdfjsLib = pdfjsModule
-  const { createCanvas } = canvasModule
-  const Tesseract = "default" in tesseractModule
-    ? (tesseractModule as any).default
-    : tesseractModule
-
+// ─── Tier 2: pdfjs-dist text layer extraction (pure JS, no native bindings) ──
+// Works in any Node.js environment including Vercel serverless
+async function extractWithPdfJs(buffer: Buffer): Promise<string> {
+  const pdfjsLib = await import("pdfjs-dist")
   // Disable the PDF.js web worker — we're in Node.js, not a browser
   pdfjsLib.GlobalWorkerOptions.workerSrc = ""
 
@@ -40,21 +28,40 @@ async function extractWithOCR(buffer: Buffer): Promise<string> {
 
   for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
     const page = await pdf.getPage(pageNum)
-
-    // ── Tier 2: try direct text extraction via pdfjs-dist first ─────────────
     const textContent = await page.getTextContent()
     const pageText = textContent.items
       .map((item: any) => ("str" in item ? item.str : ""))
       .join(" ")
       .trim()
+    if (pageText) allText += pageText + "\n"
+  }
 
-    if (pageText.length >= 20) {
-      // Page has selectable text — no need to OCR
-      allText += pageText + "\n"
-      continue
-    }
+  return allText.trim()
+}
 
-    // ── Tier 3: render page to image and run ML OCR (tesseract.js) ──────────
+// ─── Tier 3: ML OCR via canvas + tesseract.js ────────────────────────────────
+// Requires native bindings (canvas/Cairo) — may not be available on all hosts.
+// Imported separately so a missing native binding doesn't kill Tier 2.
+async function extractWithOCR(buffer: Buffer): Promise<string> {
+  // Each import is separate so a failure in canvas doesn't block pdfjs-dist
+  const pdfjsLib = await import("pdfjs-dist")
+  const { createCanvas } = await import("canvas")
+  const tesseractModule = await import("tesseract.js")
+  const Tesseract = "default" in tesseractModule
+    ? (tesseractModule as any).default
+    : tesseractModule
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc = ""
+
+  const pdf = await pdfjsLib
+    .getDocument({ data: new Uint8Array(buffer), useSystemFonts: true })
+    .promise
+
+  const maxPages = Math.min(pdf.numPages, 10)
+  let allText = ""
+
+  for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+    const page = await pdf.getPage(pageNum)
     const scale = 2.0 // higher scale → better OCR accuracy
     const viewport = page.getViewport({ scale })
 
@@ -109,7 +116,17 @@ export async function POST(request: NextRequest) {
         console.error("pdf-parse error:", err)
       }
 
-      // ── Tier 2 + 3: ML OCR fallback for image/scanned PDFs ───────────────
+      // ── Tier 2: pdfjs-dist pure-JS extraction ─────────────────────────────
+      if (!text || text.length < 50) {
+        try {
+          text = await extractWithPdfJs(buffer)
+          extractionMethod = "pdfjs"
+        } catch (err) {
+          console.error("pdfjs extraction error:", err)
+        }
+      }
+
+      // ── Tier 3: ML OCR fallback for image/scanned PDFs ───────────────────
       if (!text || text.length < 50) {
         try {
           text = await extractWithOCR(buffer)
@@ -162,9 +179,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "Could not extract text from this file. " +
-            "If your PDF is a scanned image, OCR may need additional setup. " +
-            "Try converting to DOCX for best results.",
+            "Could not extract text from this PDF. It may be image-based or scanned. " +
+            "Please try converting it to a text-based PDF or DOCX for best results.",
         },
         { status: 422 }
       )
