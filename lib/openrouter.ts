@@ -19,7 +19,8 @@ function extractJSON(text: string): string {
 
 export async function analyzeResume(
   resumeText: string,
-  jobInfo: JobInfo
+  jobInfo: JobInfo,
+  currentDate: string
 ): Promise<AnalysisResult> {
   const apiKey = process.env.HUGGINGFACE_API_KEY
   if (!apiKey || apiKey === "your_huggingface_api_key_here") {
@@ -28,7 +29,7 @@ export async function analyzeResume(
     )
   }
 
-  const { system, user } = buildPrompt(resumeText, jobInfo)
+  const { system, user } = buildPrompt(resumeText, jobInfo, currentDate)
 
   const response = await fetch(HF_API_URL, {
     method: "POST",

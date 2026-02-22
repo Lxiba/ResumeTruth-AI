@@ -2,16 +2,15 @@ import type { JobInfo } from "@/types"
 
 export function buildPrompt(
   resumeText: string,
-  jobInfo: JobInfo
+  jobInfo: JobInfo,
+  currentDate: string
 ): { system: string; user: string } {
   return jobInfo.optimizeMode === "annotate"
-    ? buildAnnotatePrompt(resumeText, jobInfo)
-    : buildFullPrompt(resumeText, jobInfo)
+    ? buildAnnotatePrompt(resumeText, jobInfo, currentDate)
+    : buildFullPrompt(resumeText, jobInfo, currentDate)
 }
 
 // ─── Format detection ─────────────────────────────────────────────────────────
-// Analyzes the extracted resume text to identify the exact formatting conventions
-// so the AI can be instructed to mirror them precisely.
 
 function detectFormatting(text: string): string {
   const lines = text.split("\n")
@@ -68,9 +67,7 @@ function detectFormatting(text: string): string {
   ]
   const matchedDate = dateFormats.find((d) => d.re.test(text))
 
-  // Build the FORMAT LOCK block
   const parts: string[] = []
-
   if (topBullet) {
     parts.push(
       `Bullet character: "${topBullet[0]}" — every list item must start with this exact character, no substitutions`
@@ -78,9 +75,7 @@ function detectFormatting(text: string): string {
   } else {
     parts.push("No bullet characters detected — do not introduce any")
   }
-
   parts.push(`Section header style: ${headerStyle}`)
-
   if (matchedDate) {
     parts.push(`Date format: ${matchedDate.label} — use this exact format for every date`)
   }
@@ -88,9 +83,78 @@ function detectFormatting(text: string): string {
   return parts.join("\n")
 }
 
+// ─── Shared missing-skills rules ──────────────────────────────────────────────
+// Injected into every prompt to stop the AI from marking present skills as missing
+// due to case differences or abbreviation mismatches.
+
+const MISSING_SKILLS_RULES = `
+MISSING SKILLS — read every word carefully before deciding a skill is absent:
+
+STEP 1 — case-insensitive exact match
+  Treat "python", "Python", "PYTHON" as identical. Always compare case-insensitively.
+
+STEP 2 — abbreviation / alias equivalence
+  These pairs are the SAME skill. If the resume contains either form, do NOT flag it as missing:
+  JS / JavaScript / ECMAScript / ES6
+  TS / TypeScript
+  React / React.js / ReactJS / ReactDOM
+  Node / Node.js / NodeJS
+  Vue / Vue.js / VueJS
+  Next / Next.js / NextJS
+  Angular / AngularJS / Angular.js
+  Express / Express.js / ExpressJS
+  K8s / K8S / Kubernetes / Kube
+  Docker / Containerization / Containers
+  AWS / Amazon Web Services / Amazon AWS
+  GCP / Google Cloud / Google Cloud Platform
+  Azure / Microsoft Azure / MS Azure
+  CI/CD / CI / CD / Continuous Integration / Continuous Deployment / Continuous Delivery
+  ML / Machine Learning
+  DL / Deep Learning
+  AI / Artificial Intelligence
+  NLP / Natural Language Processing
+  CV / Computer Vision
+  OOP / Object-Oriented Programming / Object-Oriented Design / OOD
+  FP / Functional Programming
+  SQL / Structured Query Language
+  PostgreSQL / Postgres / PG / Postgresql
+  MongoDB / Mongo
+  MySQL / My SQL
+  Redis / Redis DB / Redis Cache
+  Git / GitHub / GitLab / Bitbucket / Version Control / VCS / Source Control
+  TensorFlow / TF / Tensor Flow
+  PyTorch / Torch
+  REST / RESTful / REST API / RESTful API / REST APIs
+  GraphQL / GQL / Graph QL
+  HTML / HTML5
+  CSS / CSS3 / Stylesheets / Cascading Style Sheets
+  Linux / Unix / Unix/Linux / GNU/Linux
+  Agile / Scrum / Kanban / Sprint (any one satisfies "Agile methodology")
+  Bash / Shell / Shell Scripting / CLI / Command Line
+  gRPC / Protocol Buffers / Protobuf
+  Terraform / IaC / Infrastructure as Code
+  Ansible / Puppet / Chef / Configuration Management
+  Spark / Apache Spark
+  Kafka / Apache Kafka
+  Hadoop / HDFS / MapReduce
+
+STEP 3 — substring / superset match
+  If the resume contains a superset of the required skill, it is NOT missing.
+  Examples: "React Native" satisfies "React" | "AWS Lambda" satisfies "AWS" |
+  "Google Kubernetes Engine" satisfies "Kubernetes" | "Next.js" satisfies "JavaScript"
+
+STEP 4 — semantic equivalence
+  If the resume demonstrates the same capability under a different name, do NOT flag it.
+  Examples: "Pandas/NumPy" satisfies "data manipulation" | "Pytest" satisfies "unit testing" |
+  "PostgreSQL" satisfies "relational database" | "Scrum Master" satisfies "Agile"
+
+Only add a skill to missingSkills if ALL FOUR checks above confirm it is truly absent.
+List each missing skill as it appears in the job description (keep original capitalisation).
+`.trim()
+
 // ─── Shared cover letter instructions ────────────────────────────────────────
 
-function coverLetterInstructions(jobInfo: JobInfo): string {
+function coverLetterInstructions(jobInfo: JobInfo, currentDate: string): string {
   return `
 COVER LETTER REQUIREMENTS — follow every rule exactly:
 
@@ -103,9 +167,9 @@ FORMAT (plain text, use \\n for line breaks within the JSON string):
 [Candidate email address — extracted from resume if present]
 [Candidate LinkedIn/portfolio URL — extracted from resume if present]
 
-[Today's date spelled out, e.g. February 18, 2026]
+${currentDate}
 
-[RECIPIENT BLOCK — build this from the job description using the rules below]
+[blank line — output one empty line here, then immediately start the recipient block]
 [Recruiter/Hiring Manager full name — if found anywhere in the job description (look for "Contact:", "Apply to:", posted by, or any named person)]
 [Recruiter/Hiring Manager job title — if found in the job description]
 ${jobInfo.company || "[Company Name]"}
@@ -144,7 +208,8 @@ STYLE RULES:
 
 function buildFullPrompt(
   resumeText: string,
-  jobInfo: JobInfo
+  jobInfo: JobInfo,
+  currentDate: string
 ): { system: string; user: string } {
   const formatLock = detectFormatting(resumeText)
 
@@ -164,6 +229,8 @@ FORMAT RULES FOR optimizedResume — these are absolute, non-negotiable:
 6. Preserve the same blank-line spacing between sections as the original.
 7. Only improve the CONTENT (phrasing, keywords, impact) — never the structure, labels, or formatting characters.
 
+${MISSING_SKILLS_RULES}
+
 You MUST respond with ONLY valid JSON matching this exact structure:
 {
   "mode": "full",
@@ -177,11 +244,11 @@ You MUST respond with ONLY valid JSON matching this exact structure:
 
 Field requirements:
 - hiringProbability: Honest 0-100 match score.
-- missingSkills: Specific skills/technologies from the job description absent in the resume.
+- missingSkills: Apply the four-step check above — only list skills genuinely absent.
 - strengthAnalysis: Concrete matching strengths with specifics (not vague praise).
 - optimizedResume: Rewritten resume with improved content but IDENTICAL formatting to the original.
 - aiExplanation: 4-6 explanations covering scoring rationale and improvement tips.
-${jobInfo.generateCoverLetter ? coverLetterInstructions(jobInfo) : ""}`
+${jobInfo.generateCoverLetter ? coverLetterInstructions(jobInfo, currentDate) : ""}`
 
   const user = `Analyze this resume for the position below and return the result as JSON.
 
@@ -201,10 +268,13 @@ ${resumeText}`
 
 function buildAnnotatePrompt(
   resumeText: string,
-  jobInfo: JobInfo
+  jobInfo: JobInfo,
+  currentDate: string
 ): { system: string; user: string } {
   const system = `You are ResumeTruth AI, an expert resume coach.
 Analyze the resume against the job description and return a JSON object with inline annotations — do NOT rewrite the resume.
+
+${MISSING_SKILLS_RULES}
 
 You MUST respond with ONLY valid JSON matching this exact structure:
 {
@@ -234,7 +304,7 @@ CRITICAL RULES for "original":
 3. Each snippet must appear exactly once in the resume.
 4. Produce 8-15 annotations spread across different sections (not all from one area).
 5. Do NOT include an "optimizedResume" field.
-${jobInfo.generateCoverLetter ? coverLetterInstructions(jobInfo) : ""}`
+${jobInfo.generateCoverLetter ? coverLetterInstructions(jobInfo, currentDate) : ""}`
 
   const user = `Annotate this resume for the position below and return the result as JSON.
 

@@ -27,7 +27,14 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await analyzeResume(resumeText, jobInfo)
+    // Generate the date once on the server so the cover letter always has the real date
+    const currentDate = new Date().toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    })
+
+    const result = await analyzeResume(resumeText, jobInfo, currentDate)
     return NextResponse.json(result)
   } catch (error) {
     console.error("Analyze error:", error)
