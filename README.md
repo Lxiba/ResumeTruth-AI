@@ -50,7 +50,7 @@ The interface is built with **Next.js** using the App Router and **TypeScript** 
 ### Key Components
 
 **Input**
-- `upload-zone.tsx` — Drag-and-drop file uploader with support for PDF, DOCX, TXT, and RTF
+- `upload-zone.tsx` — Drag-and-drop file uploader with support for PDF and DOCX.
 - `job-form.tsx` — Fields for job title, company, and the job description textarea
 - `generate-button.tsx` — Submit trigger that kicks off the analysis
 
@@ -161,7 +161,7 @@ ResumeTruth AI/
 ## Data Flow
 
 ```
-User uploads resume (PDF / DOCX / TXT / RTF)
+User uploads resume (PDF / DOCX)
         ↓
 POST /api/parse-resume
   └─ Tier 1: OCR.space API        (cloud, text + scanned PDFs)
