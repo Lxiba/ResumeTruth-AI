@@ -37,7 +37,7 @@ async function extractWithOcrSpace(buffer: Buffer): Promise<string> {
   form.append("OCREngine",           "2")       // engine 2 handles complex layouts better
   form.append(
     "file",
-    new Blob([buffer], { type: "application/pdf" }),
+    new Blob([new Uint8Array(buffer)], { type: "application/pdf" }),
     "resume.pdf"
   )
 
