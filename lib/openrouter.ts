@@ -1,10 +1,9 @@
 import type { AnalysisResult, JobInfo } from "@/types"
 import { buildPrompt } from "@/lib/prompts"
 
-// Use the HuggingFace Serverless Inference API (Messages/chat-completions endpoint).
-// This works with any valid free HF API key — no Pro subscription required.
+// router.huggingface.co is the current required endpoint (api-inference.huggingface.co was retired)
+const HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
 const MODEL = "Qwen/Qwen2.5-72B-Instruct"
-const HF_API_URL = `https://api-inference.huggingface.co/models/${MODEL}/v1/chat/completions`
 
 /** Extracts a JSON object from a string that may contain markdown code fences. */
 function extractJSON(text: string): string {
@@ -36,18 +35,17 @@ export async function analyzeResume(
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
-      // Tell HF to queue the request if the model is warming up (avoids instant 503)
+      // Queue the request if the model is warming up instead of returning an instant 503
       "x-wait-for-model": "true",
     },
     body: JSON.stringify({
-      // model field is encoded in the URL; omitting it from the body avoids conflicts
+      model: MODEL,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
       temperature: 0.3,
       max_tokens: 4096,
-      stream: false,
     }),
   })
 
@@ -62,7 +60,7 @@ export async function analyzeResume(
     if (response.status === 402 || response.status === 403) {
       throw new Error(
         "Your HuggingFace account does not have access to this model. " +
-        "Ensure your API key is valid and you have accepted the model's license on HuggingFace."
+        "Ensure your API key is valid and that you have accepted the model license on HuggingFace."
       )
     }
     if (response.status === 429) {

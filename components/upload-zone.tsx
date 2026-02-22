@@ -9,6 +9,16 @@ interface UploadZoneProps {
   onClear: () => void
 }
 
+const ACCEPTED_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain", "application/rtf", "text/rtf"]
+const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".txt", ".rtf"]
+
+function isAccepted(file: File): boolean {
+  return (
+    ACCEPTED_TYPES.includes(file.type) ||
+    ACCEPTED_EXTENSIONS.some((ext) => file.name.toLowerCase().endsWith(ext))
+  )
+}
+
 export function UploadZone({ onFileSelect, selectedFile, onClear }: UploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false)
 
@@ -17,7 +27,7 @@ export function UploadZone({ onFileSelect, selectedFile, onClear }: UploadZonePr
       e.preventDefault()
       setIsDragging(false)
       const file = e.dataTransfer.files[0]
-      if (file && (file.type === "application/pdf" || file.name.endsWith(".docx"))) {
+      if (file && isAccepted(file)) {
         onFileSelect(file)
       }
     },
@@ -72,7 +82,7 @@ export function UploadZone({ onFileSelect, selectedFile, onClear }: UploadZonePr
     >
       <input
         type="file"
-        accept=".pdf,.docx"
+        accept=".pdf,.docx,.txt,.rtf"
         onChange={handleInputChange}
         className="absolute inset-0 cursor-pointer opacity-0"
         aria-label="Upload resume"
@@ -88,7 +98,7 @@ export function UploadZone({ onFileSelect, selectedFile, onClear }: UploadZonePr
       <p className="mt-1 text-sm text-purple-300">
         or <span className="text-purple-400 underline underline-offset-2">click to browse</span>
       </p>
-      <p className="mt-3 text-xs text-purple-500">Supports PDF and DOCX files</p>
+      <p className="mt-3 text-xs text-purple-500">Supports PDF, DOCX, TXT, and RTF files</p>
     </div>
   )
 }

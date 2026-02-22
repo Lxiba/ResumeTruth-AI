@@ -9,6 +9,85 @@ export function buildPrompt(
     : buildFullPrompt(resumeText, jobInfo)
 }
 
+// ─── Format detection ─────────────────────────────────────────────────────────
+// Analyzes the extracted resume text to identify the exact formatting conventions
+// so the AI can be instructed to mirror them precisely.
+
+function detectFormatting(text: string): string {
+  const lines = text.split("\n")
+
+  // Count each bullet character style
+  const bullets: Record<string, number> = {}
+  for (const line of lines) {
+    const t = line.trimStart()
+    if (t.startsWith("• ") || t.startsWith("● ")) bullets["•"] = (bullets["•"] || 0) + 1
+    else if (t.startsWith("- ") && t.length > 2)   bullets["-"] = (bullets["-"] || 0) + 1
+    else if (t.startsWith("* ") && t.length > 2)   bullets["*"] = (bullets["*"] || 0) + 1
+    else if (t.startsWith("◦ "))                    bullets["◦"] = (bullets["◦"] || 0) + 1
+    else if (t.startsWith("▪ ") || t.startsWith("▸ ")) bullets["▪"] = (bullets["▪"] || 0) + 1
+    else if (/^\d+[.)]\s/.test(t))                  bullets["1."] = (bullets["1."] || 0) + 1
+  }
+  const topBullet = Object.entries(bullets).sort((a, b) => b[1] - a[1])[0]
+
+  // Detect section header style from short, label-like lines
+  const labelLines = lines
+    .map((l) => l.trim())
+    .filter(
+      (l) =>
+        l.length >= 3 &&
+        l.length <= 45 &&
+        !/[@|•\-*◦▪▸]/.test(l) &&
+        !/\d{4}/.test(l) &&
+        !/[,;]/.test(l)
+    )
+  const allCapsCount = labelLines.filter(
+    (l) => l === l.toUpperCase() && /[A-Z]{2,}/.test(l)
+  ).length
+  const titleCaseCount = labelLines.filter((l) => /^[A-Z][a-z]/.test(l)).length
+
+  let headerStyle: string
+  const exampleHeader = labelLines.find(
+    (l) => l === l.toUpperCase() && /[A-Z]{2,}/.test(l) && l.length > 3
+  )
+  if (allCapsCount > 1 && exampleHeader) {
+    headerStyle = `ALL CAPS — example from the resume: "${exampleHeader}"`
+  } else if (titleCaseCount > allCapsCount) {
+    const ex = labelLines.find((l) => /^[A-Z][a-z]/.test(l))
+    headerStyle = `Title Case — example from the resume: "${ex ?? ""}"`
+  } else {
+    headerStyle = "match whatever style appears in the original"
+  }
+
+  // Detect date format
+  const dateFormats: Array<{ re: RegExp; label: string }> = [
+    { re: /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{4}/i,           label: 'abbreviated month, e.g. "Jan 2023"' },
+    { re: /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}/i, label: 'full month, e.g. "January 2023"' },
+    { re: /\b\d{2}\/\d{4}/,                                                             label: 'MM/YYYY, e.g. "01/2023"' },
+    { re: /\b\d{4}\s*[–-]\s*(Present|Current|Now|Today)/i,                             label: 'year–Present, e.g. "2022–Present"' },
+    { re: /\b\d{4}\s*[–-]\s*\d{4}/,                                                    label: 'year–year, e.g. "2020–2022"' },
+  ]
+  const matchedDate = dateFormats.find((d) => d.re.test(text))
+
+  // Build the FORMAT LOCK block
+  const parts: string[] = []
+
+  if (topBullet) {
+    parts.push(
+      `Bullet character: "${topBullet[0]}" — every list item must start with this exact character, no substitutions`
+    )
+  } else {
+    parts.push("No bullet characters detected — do not introduce any")
+  }
+
+  parts.push(`Section header style: ${headerStyle}`)
+
+  if (matchedDate) {
+    parts.push(`Date format: ${matchedDate.label} — use this exact format for every date`)
+  }
+
+  return parts.join("\n")
+}
+
 // ─── Shared cover letter instructions ────────────────────────────────────────
 
 function coverLetterInstructions(jobInfo: JobInfo): string {
@@ -67,10 +146,23 @@ function buildFullPrompt(
   resumeText: string,
   jobInfo: JobInfo
 ): { system: string; user: string } {
+  const formatLock = detectFormatting(resumeText)
+
   const system = `You are ResumeTruth AI, an expert resume analyst and career coach.
 Analyze the candidate's resume against the job description and return a JSON object.
 
-CRITICAL FORMAT RULE: The optimizedResume must follow the EXACT same section structure, ordering, and layout as the original resume. Do NOT invent new sections or reorder them. Preserve the candidate's real experience — improve phrasing, inject relevant keywords, and strengthen impact statements.
+════ FORMAT LOCK — detected from the original resume ════
+${formatLock}
+═════════════════════════════════════════════════════════
+
+FORMAT RULES FOR optimizedResume — these are absolute, non-negotiable:
+1. Use the EXACT bullet character shown in FORMAT LOCK above — never switch to a different one.
+2. Use the EXACT section header style shown — if ALL CAPS, every header must be ALL CAPS; if Title Case, every header must be Title Case.
+3. Use the EXACT date format shown — do not reformat any date.
+4. Copy every section name VERBATIM from the original — do not rename, translate, abbreviate, or add new sections.
+5. Keep sections in the EXACT same order as the original.
+6. Preserve the same blank-line spacing between sections as the original.
+7. Only improve the CONTENT (phrasing, keywords, impact) — never the structure, labels, or formatting characters.
 
 You MUST respond with ONLY valid JSON matching this exact structure:
 {
@@ -78,7 +170,7 @@ You MUST respond with ONLY valid JSON matching this exact structure:
   "hiringProbability": <integer 0-100>,
   "missingSkills": [<string>, ...],
   "strengthAnalysis": [<string>, ...],
-  "optimizedResume": "<full optimized resume as plain text>",
+  "optimizedResume": "<full optimized resume as plain text with \\n for newlines>",
   ${jobInfo.generateCoverLetter ? '"coverLetter": "<cover letter — see format rules below>",' : ""}
   "aiExplanation": [<string>, ...]
 }
@@ -87,7 +179,7 @@ Field requirements:
 - hiringProbability: Honest 0-100 match score.
 - missingSkills: Specific skills/technologies from the job description absent in the resume.
 - strengthAnalysis: Concrete matching strengths with specifics (not vague praise).
-- optimizedResume: Rewritten resume preserving the ORIGINAL section structure and order. Use plain text. Section headers in the same format as the original.
+- optimizedResume: Rewritten resume with improved content but IDENTICAL formatting to the original.
 - aiExplanation: 4-6 explanations covering scoring rationale and improvement tips.
 ${jobInfo.generateCoverLetter ? coverLetterInstructions(jobInfo) : ""}`
 

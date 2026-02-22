@@ -127,9 +127,32 @@ export async function POST(request: NextRequest) {
       const mammoth = await import("mammoth")
       const result = await mammoth.extractRawText({ buffer })
       text = result.value
+    } else if (
+      mimeType === "text/plain" ||
+      fileName.endsWith(".txt")
+    ) {
+      // Plain text — decode directly
+      text = buffer.toString("utf-8")
+      extractionMethod = "txt"
+    } else if (
+      mimeType === "application/rtf" ||
+      mimeType === "text/rtf" ||
+      fileName.endsWith(".rtf")
+    ) {
+      // RTF — strip all RTF control words and braces to get plain text
+      const raw = buffer.toString("utf-8")
+      text = raw
+        .replace(/\\\n/g, "\n")                          // escaped newlines
+        .replace(/\\[a-z]+\d*\s?/gi, "")                 // control words like \par \b0 \fs24
+        .replace(/\{|\}/g, "")                           // braces
+        .replace(/\\'/gi, "'")                           // escaped apostrophes
+        .replace(/\r\n|\r/g, "\n")                       // normalize line endings
+        .replace(/\n{3,}/g, "\n\n")                      // collapse excessive blank lines
+        .trim()
+      extractionMethod = "rtf"
     } else {
       return NextResponse.json(
-        { error: "Unsupported file type. Please upload a PDF or DOCX file." },
+        { error: "Unsupported file type. Please upload a PDF, DOCX, TXT, or RTF file." },
         { status: 400 }
       )
     }
