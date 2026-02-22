@@ -8,9 +8,9 @@ export const maxDuration = 60
 const MAX_PAGES            = 10
 const MIN_CHARS_PER_PAGE   = 50      // below this → treat page as scanned
 const TOO_LONG_CHARS       = 8_000   // ~1,200–1,500 words ≈ 2 printed pages
-const OCR_TIMEOUT_MS       = 20_000  // hard cap per local tesseract page
-const OCR_SPACE_TIMEOUT_MS = 30_000  // hard cap for OCR.space API call
-const OCR_SPACE_MAX_BYTES  = 1_000_000  // free tier file size limit (1 MB)
+const OCR_TIMEOUT_MS       = 20_000
+const OCR_SPACE_TIMEOUT_MS = 30_000 
+const OCR_SPACE_MAX_BYTES  = 1_000_000 
 
 // pdfjs-dist legacy build — required for Node.js (standard build needs DOMMatrix)
 const PDFJS_WORKER_URL = pathToFileURL(
@@ -332,27 +332,7 @@ export async function POST(request: NextRequest) {
     ) {
       const mammoth = await import("mammoth")
       text = (await mammoth.extractRawText({ buffer })).value.trim()
-
-    // ── TXT ───────────────────────────────────────────────────────────────────
-    } else if (mime === "text/plain" || fname.endsWith(".txt")) {
-      text = buffer.toString("utf-8").trim()
-
-    // ── RTF ───────────────────────────────────────────────────────────────────
-    } else if (
-      mime === "application/rtf" ||
-      mime === "text/rtf"         ||
-      fname.endsWith(".rtf")
-    ) {
-      text = buffer
-        .toString("utf-8")
-        .replace(/\\\n/g, "\n")
-        .replace(/\\[a-z]+\d*\s?/gi, "")
-        .replace(/[{}]/g, "")
-        .replace(/\\'/gi, "'")
-        .replace(/\r\n|\r/g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim()
-
+      
     // ── PDF ───────────────────────────────────────────────────────────────────
     } else if (mime === "application/pdf" || fname.endsWith(".pdf")) {
       text = await processPdf(buffer)
@@ -360,7 +340,7 @@ export async function POST(request: NextRequest) {
     // ── Unsupported ───────────────────────────────────────────────────────────
     } else {
       return NextResponse.json(
-        { error: "Unsupported file type. Please upload a PDF, DOCX, or TXT file." },
+        { error: "Unsupported file type. Please upload a PDF or DOCX" },
         { status: 400 },
       )
     }
