@@ -73,10 +73,6 @@ export default function HomePage() {
     setJobInfo((prev) => ({ ...prev, optimizeMode: mode }))
   }
 
-  // Safely parse JSON from a fetch response.
-  // If the server returns a non-JSON body (e.g. a platform-level HTML error page
-  // on crash or timeout), this throws a friendly message instead of a raw
-  // "Unexpected token" parse error.
   const safeJson = async (response: Response): Promise<any> => {
     const text = await response.text()
     try {
