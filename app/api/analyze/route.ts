@@ -38,9 +38,9 @@ export async function POST(request: NextRequest) {
     // Surface a clearer message when the API key is missing in the deployment environment
     if (message.includes("HUGGINGFACE_API_KEY")) {
       message =
-        "Server configuration error: the Hugging Face API key is not set. " +
-        "If you deployed to Vercel, add HUGGINGFACE_API_KEY to your project's " +
-        "Environment Variables in the Vercel dashboard."
+        "Server configuration error: HUGGINGFACE_API_KEY is not set. " +
+        "Add it to .env.local for local development, or to the Environment Variables " +
+        "section in your Vercel/hosting dashboard for production."
     }
 
     return NextResponse.json({ error: message }, { status: 500 })

@@ -1,13 +1,17 @@
 import type { AnalysisResult, JobInfo } from "@/types"
 import { buildPrompt } from "@/lib/prompts"
 
-const HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
+// Use the HuggingFace Serverless Inference API (Messages/chat-completions endpoint).
+// This works with any valid free HF API key — no Pro subscription required.
 const MODEL = "Qwen/Qwen2.5-72B-Instruct"
+const HF_API_URL = `https://api-inference.huggingface.co/models/${MODEL}/v1/chat/completions`
 
 /** Extracts a JSON object from a string that may contain markdown code fences. */
 function extractJSON(text: string): string {
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
   if (fenced) return fenced[1]
+  // Fall back to slicing from first { to last }
   const start = text.indexOf("{")
   const end = text.lastIndexOf("}")
   if (start !== -1 && end !== -1) return text.slice(start, end + 1)
@@ -31,39 +35,69 @@ export async function analyzeResume(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
+      "Authorization": `Bearer ${apiKey}`,
+      // Tell HF to queue the request if the model is warming up (avoids instant 503)
+      "x-wait-for-model": "true",
     },
     body: JSON.stringify({
-      model: MODEL,
+      // model field is encoded in the URL; omitting it from the body avoids conflicts
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
       temperature: 0.3,
       max_tokens: 4096,
+      stream: false,
     }),
   })
 
   if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`Hugging Face Router API error ${response.status}: ${errorText}`)
+    const errorText = await response.text().catch(() => "")
+
+    if (response.status === 401) {
+      throw new Error(
+        "Invalid HuggingFace API key. Please verify HUGGINGFACE_API_KEY in your environment settings."
+      )
+    }
+    if (response.status === 402 || response.status === 403) {
+      throw new Error(
+        "Your HuggingFace account does not have access to this model. " +
+        "Ensure your API key is valid and you have accepted the model's license on HuggingFace."
+      )
+    }
+    if (response.status === 429) {
+      throw new Error(
+        "HuggingFace rate limit reached. Please wait a moment and try again."
+      )
+    }
+    if (response.status === 503) {
+      throw new Error(
+        "The AI model is currently loading. Please wait 20-30 seconds and try again."
+      )
+    }
+
+    throw new Error(
+      `HuggingFace API error ${response.status}: ${errorText.slice(0, 300)}`
+    )
   }
 
   const data = await response.json()
   const rawContent: string = data.choices?.[0]?.message?.content
 
   if (!rawContent) {
-    throw new Error("No content returned from AI model")
+    throw new Error("No content returned from the AI model. Please try again.")
   }
 
   let parsed: AnalysisResult
   try {
     parsed = JSON.parse(extractJSON(rawContent)) as AnalysisResult
   } catch {
-    throw new Error("AI returned malformed JSON. Please try again.")
+    throw new Error(
+      "The AI returned a malformed response. Please try again — this usually resolves on retry."
+    )
   }
 
-  // Ensure mode is always set (AI may omit it)
+  // Ensure mode is always set (the AI may omit it)
   parsed.mode = parsed.mode ?? jobInfo.optimizeMode
 
   // Validate shared required fields
@@ -73,15 +107,21 @@ export async function analyzeResume(
     !Array.isArray(parsed.strengthAnalysis) ||
     !Array.isArray(parsed.aiExplanation)
   ) {
-    throw new Error("AI response is missing required fields. Please try again.")
+    throw new Error(
+      "AI response is missing required fields. Please try again."
+    )
   }
 
   // Validate mode-specific fields
   if (parsed.mode === "full" && typeof parsed.optimizedResume !== "string") {
-    throw new Error("AI did not return an optimized resume. Please try again.")
+    throw new Error(
+      "AI did not return an optimized resume. Please try again."
+    )
   }
   if (parsed.mode === "annotate" && !Array.isArray(parsed.annotations)) {
-    throw new Error("AI did not return annotations. Please try again.")
+    throw new Error(
+      "AI did not return annotations. Please try again."
+    )
   }
 
   return parsed
