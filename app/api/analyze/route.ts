@@ -2,23 +2,24 @@ import { NextRequest, NextResponse } from "next/server"
 import { analyzeResume } from "@/lib/openrouter"
 import type { JobInfo } from "@/types"
 
-// Allow up to 60 seconds — LLM inference can be slow
 export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { resumeText, jobInfo } = body as {
-      resumeText: string
-      jobInfo: JobInfo
-    }
+    const formData = await request.formData()
 
-    if (!resumeText?.trim()) {
+    const resumeTextInput = formData.get("resumeText") as string | null
+    const file = formData.get("file") as File | null
+    const jobInfoRaw = formData.get("jobInfo") as string | null
+
+    if (!jobInfoRaw) {
       return NextResponse.json(
-        { error: "Resume text is required" },
+        { error: "Job information is required" },
         { status: 400 }
       )
     }
+
+    const jobInfo: JobInfo = JSON.parse(jobInfoRaw)
 
     if (!jobInfo?.title?.trim() || !jobInfo?.description?.trim()) {
       return NextResponse.json(
@@ -27,7 +28,58 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Generate the date once on the server so the cover letter always has the real date
+    let resumeText = ""
+
+    // ─────────────────────────────
+    // Case 1: Direct Text
+    // ─────────────────────────────
+    if (resumeTextInput?.trim()) {
+      resumeText = resumeTextInput.trim()
+    }
+
+    // ─────────────────────────────
+    // Case 2: File Upload (PDF/DOCX/TXT)
+    // ─────────────────────────────
+    else if (file) {
+      const parseResponse = await fetch(
+        `${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/parse-resume`,
+        {
+          method: "POST",
+          body: (() => {
+            const fd = new FormData()
+            fd.append("file", file)
+            return fd
+          })(),
+        }
+      )
+
+      const parsed = await parseResponse.json()
+
+      if (!parseResponse.ok || !parsed.text) {
+        return NextResponse.json(
+          { error: parsed.error || "Failed to extract resume text." },
+          { status: 422 }
+        )
+      }
+
+      resumeText = parsed.text
+    }
+
+    else {
+      return NextResponse.json(
+        { error: "Resume text or file is required" },
+        { status: 400 }
+      )
+    }
+
+    if (!resumeText.trim()) {
+      return NextResponse.json(
+        { error: "Could not extract text from the resume." },
+        { status: 422 }
+      )
+    }
+
+    // Generate real server date for cover letter
     const currentDate = new Date().toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
@@ -35,19 +87,21 @@ export async function POST(request: NextRequest) {
     })
 
     const result = await analyzeResume(resumeText, jobInfo, currentDate)
+
     return NextResponse.json(result)
+
   } catch (error) {
     console.error("Analyze error:", error)
 
     let message =
-      error instanceof Error ? error.message : "Analysis failed. Please try again."
+      error instanceof Error
+        ? error.message
+        : "Analysis failed. Please try again."
 
-    // Surface a clearer message when the API key is missing in the deployment environment
     if (message.includes("HUGGINGFACE_API_KEY")) {
       message =
         "Server configuration error: HUGGINGFACE_API_KEY is not set. " +
-        "Add it to .env.local for local development, or to the Environment Variables " +
-        "section in your Vercel/hosting dashboard for production."
+        "Add it to your environment variables in Vercel or .env.local."
     }
 
     return NextResponse.json({ error: message }, { status: 500 })
