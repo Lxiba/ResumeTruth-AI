@@ -107,7 +107,7 @@ Uses **pdf-lib** to produce A4 PDFs on the server. Handles heading detection, fo
 ## Tech Stack
 
 **Framework**
-- Next.js 16 (App Router) with React 19 and TypeScript
+- Next.js (App Router) with React and TypeScript
 
 **AI**
 - Hugging Face Inference API — Qwen 2.5 72B Instruct model
@@ -138,7 +138,7 @@ ResumeTruth AI/
 │   │   ├── analyze/route.ts        # Core AI analysis endpoint
 │   │   └── parse-resume/route.ts   # Document text extraction endpoint
 │   ├── results/page.tsx            # Results display page
-│   ├── page.tsx                    # Home / input page
+│   ├── page.tsx                    # Home/input page
 │   ├── layout.tsx                  # Root layout and metadata
 │   └── globals.css                 # Global styles
 ├── components/
@@ -181,21 +181,3 @@ Results page renders preview  →  User downloads PDF
 ```
 
 Results are persisted in **sessionStorage** so they survive page refreshes within the same browser tab.
-
----
-
-## Environment Variables
-
-| Variable | Purpose |
-|---|---|
-| `HUGGINGFACE_API_KEY` | API key for the Hugging Face Inference endpoint |
-| `OCR_SPACE_API_KEY` | API key for the OCR.space PDF extraction service |
-
-For local development, create a `.env.local` file in the project root:
-
-```env
-HUGGINGFACE_API_KEY=your_huggingface_api_key_here
-OCR_SPACE_API_KEY=your_ocr_space_api_key_here
-```
-
-For production on Vercel, add both keys under **Project → Settings → Environment Variables**.
