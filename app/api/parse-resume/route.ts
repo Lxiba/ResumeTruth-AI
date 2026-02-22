@@ -1,96 +1,172 @@
 import { NextRequest, NextResponse } from "next/server"
 
-// Allow up to 60 seconds — OCR on multi-page scanned PDFs can be slow
+export const runtime = "nodejs"
 export const maxDuration = 60
 
-// ─── Tier 1: pdf-parse (fast, reliable for text-based PDFs) ─────────────────
-async function extractWithPdfParse(buffer: Buffer): Promise<string> {
-  const { PDFParse } = await import("pdf-parse")
-  const parser = new PDFParse({ data: buffer })
-  const result = await parser.getText()
-  await parser.destroy()
-  return result.text?.trim() ?? ""
+const MAX_PAGES = 10
+const MIN_CHARS_PER_PAGE = 50  // fewer chars → treat page as scanned / image-based
+const TOO_LONG_CHARS = 8_000   // ~1,200–1,500 words ≈ 2 printed pages
+const OCR_TIMEOUT_MS = 20_000  // 20 s hard cap per page
+
+// ─── Pure-JS RGBA → 24-bit BMP encoder ───────────────────────────────────────
+// BMP has a trivial header and is understood by Tesseract's Leptonica engine,
+// so we get a valid image buffer with zero extra dependencies.
+function rgbaToBmp(rgba: Uint8ClampedArray, width: number, height: number): Buffer {
+  const rowBytes = Math.ceil((width * 3) / 4) * 4   // rows padded to 4-byte boundary
+  const pixelBytes = rowBytes * height
+  const fileSize = 54 + pixelBytes
+  const buf = Buffer.alloc(fileSize, 0)
+
+  // ── BMP file header (14 bytes) ────────────────────────────────────────────
+  buf[0] = 0x42; buf[1] = 0x4d          // "BM"
+  buf.writeUInt32LE(fileSize, 2)
+  buf.writeUInt32LE(54, 10)             // pixel data starts at byte 54
+
+  // ── BITMAPINFOHEADER (40 bytes) ───────────────────────────────────────────
+  buf.writeUInt32LE(40, 14)             // header size
+  buf.writeInt32LE(width, 18)
+  buf.writeInt32LE(-height, 22)         // negative = top-down row order
+  buf.writeUInt16LE(1, 26)              // color planes = 1
+  buf.writeUInt16LE(24, 28)             // 24-bit RGB (no alpha)
+  buf.writeUInt32LE(0, 30)              // BI_RGB — no compression
+  buf.writeUInt32LE(pixelBytes, 34)
+  buf.writeInt32LE(2835, 38)            // ~72 DPI horizontal
+  buf.writeInt32LE(2835, 42)            // ~72 DPI vertical
+
+  // ── Pixel data: RGBA → BGR, row-major ────────────────────────────────────
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const src = (y * width + x) * 4
+      const dst = 54 + y * rowBytes + x * 3
+      buf[dst]     = rgba[src + 2]   // B
+      buf[dst + 1] = rgba[src + 1]   // G
+      buf[dst + 2] = rgba[src]       // R
+    }
+  }
+
+  return buf
 }
 
-// ─── Tier 2: pdfjs-dist text layer extraction (pure JS, no native bindings) ──
-// Works in any Node.js environment including Vercel serverless
-async function extractWithPdfJs(buffer: Buffer): Promise<string> {
-  const pdfjsLib = await import("pdfjs-dist")
-  // Disable the PDF.js web worker — we're in Node.js, not a browser
+// ─── Tier 1: pdfjs-dist text-layer extraction (pure JS, no rendering) ────────
+// Works for every text-based and mixed PDF. Fast and allocation-light.
+async function extractTextLayer(
+  pdfjsLib: any,
+  buffer: Buffer,
+): Promise<string[]> {
   pdfjsLib.GlobalWorkerOptions.workerSrc = ""
 
   const pdf = await pdfjsLib
     .getDocument({ data: new Uint8Array(buffer), useSystemFonts: true })
     .promise
 
-  const maxPages = Math.min(pdf.numPages, 10) // cap at 10 pages for performance
-  let allText = ""
+  const total = Math.min(pdf.numPages, MAX_PAGES)
+  const pageTexts: string[] = []
 
-  for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-    const page = await pdf.getPage(pageNum)
-    const textContent = await page.getTextContent()
-    const pageText = textContent.items
+  for (let n = 1; n <= total; n++) {
+    const page = await pdf.getPage(n)
+    const content = await page.getTextContent()
+    const text = content.items
       .map((item: any) => ("str" in item ? item.str : ""))
       .join(" ")
       .trim()
-    if (pageText) allText += pageText + "\n"
+    pageTexts.push(text)
+    page.cleanup()
   }
 
-  return allText.trim()
+  await pdf.destroy()
+  return pageTexts
 }
 
-// ─── Tier 3: ML OCR via canvas + tesseract.js ────────────────────────────────
-// Requires native bindings (canvas/Cairo) — may not be available on all hosts.
-// Imported separately so a missing native binding doesn't kill Tier 2.
-async function extractWithOCR(buffer: Buffer): Promise<string> {
-  // Each import is separate so a failure in canvas doesn't block pdfjs-dist
-  const pdfjsLib = await import("pdfjs-dist")
-  const { createCanvas } = await import("canvas")
-  const tesseractModule = await import("tesseract.js")
-  const Tesseract = "default" in tesseractModule
-    ? (tesseractModule as any).default
-    : tesseractModule
-
+// ─── Tier 2: extract embedded RGBA image data from page objects ───────────────
+// After getOperatorList() resolves, pdfjs-dist has decoded every embedded image
+// and stored its RGBA pixel data in page.objs. We grab it directly — no canvas
+// rendering needed, no native bindings required.
+async function extractPageImages(
+  pdfjsLib: any,
+  buffer: Buffer,
+  targetPages: number[],   // 1-based page numbers that need OCR
+): Promise<Map<number, { data: Uint8ClampedArray; width: number; height: number }>> {
   pdfjsLib.GlobalWorkerOptions.workerSrc = ""
 
   const pdf = await pdfjsLib
     .getDocument({ data: new Uint8Array(buffer), useSystemFonts: true })
     .promise
 
-  const maxPages = Math.min(pdf.numPages, 10)
-  let allText = ""
+  // OPS.paintImageXObject = 85 in all current pdfjs-dist versions
+  const PAINT_IMAGE_OP: number = pdfjsLib.OPS?.paintImageXObject ?? 85
 
-  for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+  const results = new Map<
+    number,
+    { data: Uint8ClampedArray; width: number; height: number }
+  >()
+
+  for (const pageNum of targetPages) {
+    if (pageNum > Math.min(pdf.numPages, MAX_PAGES)) continue
+
     const page = await pdf.getPage(pageNum)
-    const scale = 2.0 // higher scale → better OCR accuracy
-    const viewport = page.getViewport({ scale })
+    try {
+      // getOperatorList() populates page.objs with all decoded resources
+      const ops = await page.getOperatorList()
 
-    const canvas = createCanvas(
-      Math.round(viewport.width),
-      Math.round(viewport.height)
-    )
-    const ctx = canvas.getContext("2d")
+      const imgNames = new Set<string>()
+      for (let i = 0; i < ops.fnArray.length; i++) {
+        if (ops.fnArray[i] === PAINT_IMAGE_OP) {
+          const name = ops.argsArray[i]?.[0]
+          if (typeof name === "string") imgNames.add(name)
+        }
+      }
 
-    await page.render({
-      canvasContext: ctx as unknown as CanvasRenderingContext2D,
-      // pdfjs-dist v5 requires the canvas element itself in addition to the context
-      canvas: canvas as unknown as HTMLCanvasElement,
-      viewport,
-    }).promise
+      // Pick the largest image on the page — most likely the scanned content
+      let best: { data: Uint8ClampedArray; width: number; height: number } | null = null
 
-    const pngBuffer = canvas.toBuffer("image/png")
+      for (const name of imgNames) {
+        // Try page-local objects first, then document-level common objects
+        let obj: any = null
+        try { obj = (page as any).objs.get(name) } catch { /* not in page objs */ }
+        if (!obj) {
+          try { obj = (page as any).commonObjs.get(name) } catch { /* not in common objs */ }
+        }
+        if (!obj?.data || !obj.width || !obj.height) continue
 
-    // ML OCR: LSTM neural-network model via tesseract.js
-    const { data: { text } } = await Tesseract.recognize(pngBuffer, "eng", {
-      logger: () => {}, // silence progress logs in server output
-    })
-    allText += text + "\n"
+        const candidate = {
+          data: obj.data instanceof Uint8ClampedArray
+            ? obj.data
+            : new Uint8ClampedArray(obj.data.buffer ?? obj.data),
+          width:  obj.width  as number,
+          height: obj.height as number,
+        }
+
+        if (!best || candidate.width * candidate.height > best.width * best.height) {
+          best = candidate
+        }
+      }
+
+      if (best) results.set(pageNum, best)
+    } catch {
+      // Operator list or object access failed for this page — skip silently
+    }
+
+    page.cleanup()
   }
 
-  return allText.trim()
+  await pdf.destroy()
+  return results
 }
 
-// ─── Route handler ───────────────────────────────────────────────────────────
+// ─── OCR one BMP buffer, hard-capped at timeoutMs ────────────────────────────
+async function ocrBuffer(
+  worker: any,
+  bmpBuf: Buffer,
+  timeoutMs: number,
+): Promise<string> {
+  const ocr = worker.recognize(bmpBuf).then((r: any) => r.data.text ?? "")
+  const abort = new Promise<string>((_, rej) =>
+    setTimeout(() => rej(new Error("OCR timeout")), timeoutMs),
+  )
+  return Promise.race([ocr, abort])
+}
+
+// ─── Route handler ────────────────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -100,98 +176,111 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 })
     }
 
-    const bytes = await file.arrayBuffer()
+    const bytes  = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-    let text = ""
-    let extractionMethod = "pdf-parse"
+    const name   = file.name.toLowerCase()
+    const mime   = file.type
+    let   text   = ""
 
-    const fileName = file.name.toLowerCase()
-    const mimeType = file.type
-
-    if (mimeType === "application/pdf" || fileName.endsWith(".pdf")) {
-      // ── Tier 1: fast text extraction ──────────────────────────────────────
-      try {
-        text = await extractWithPdfParse(buffer)
-      } catch (err) {
-        console.error("pdf-parse error:", err)
-      }
-
-      // ── Tier 2: pdfjs-dist pure-JS extraction ─────────────────────────────
-      if (!text || text.length < 50) {
-        try {
-          text = await extractWithPdfJs(buffer)
-          extractionMethod = "pdfjs"
-        } catch (err) {
-          console.error("pdfjs extraction error:", err)
-        }
-      }
-
-      // ── Tier 3: ML OCR fallback for image/scanned PDFs ───────────────────
-      if (!text || text.length < 50) {
-        try {
-          text = await extractWithOCR(buffer)
-          extractionMethod = "ocr"
-        } catch (ocrErr) {
-          console.error("OCR extraction error:", ocrErr)
-          // OCR failed — text stays empty, will return 422 below
-        }
-      }
-    } else if (
-      mimeType ===
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      fileName.endsWith(".docx")
+    // ── DOCX ──────────────────────────────────────────────────────────────────
+    if (
+      mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      name.endsWith(".docx")
     ) {
       const mammoth = await import("mammoth")
-      const result = await mammoth.extractRawText({ buffer })
-      text = result.value
+      text = (await mammoth.extractRawText({ buffer })).value.trim()
+
+    // ── TXT ───────────────────────────────────────────────────────────────────
+    } else if (mime === "text/plain" || name.endsWith(".txt")) {
+      text = buffer.toString("utf-8").trim()
+
+    // ── RTF ───────────────────────────────────────────────────────────────────
     } else if (
-      mimeType === "text/plain" ||
-      fileName.endsWith(".txt")
+      mime === "application/rtf" ||
+      mime === "text/rtf"         ||
+      name.endsWith(".rtf")
     ) {
-      // Plain text — decode directly
-      text = buffer.toString("utf-8")
-      extractionMethod = "txt"
-    } else if (
-      mimeType === "application/rtf" ||
-      mimeType === "text/rtf" ||
-      fileName.endsWith(".rtf")
-    ) {
-      // RTF — strip all RTF control words and braces to get plain text
-      const raw = buffer.toString("utf-8")
-      text = raw
-        .replace(/\\\n/g, "\n")                          // escaped newlines
-        .replace(/\\[a-z]+\d*\s?/gi, "")                 // control words like \par \b0 \fs24
-        .replace(/\{|\}/g, "")                           // braces
-        .replace(/\\'/gi, "'")                           // escaped apostrophes
-        .replace(/\r\n|\r/g, "\n")                       // normalize line endings
-        .replace(/\n{3,}/g, "\n\n")                      // collapse excessive blank lines
+      text = buffer
+        .toString("utf-8")
+        .replace(/\\\n/g, "\n")
+        .replace(/\\[a-z]+\d*\s?/gi, "")
+        .replace(/[{}]/g, "")
+        .replace(/\\'/gi, "'")
+        .replace(/\r\n|\r/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
         .trim()
-      extractionMethod = "rtf"
+
+    // ── PDF ───────────────────────────────────────────────────────────────────
+    } else if (mime === "application/pdf" || name.endsWith(".pdf")) {
+      const pdfjsLib = await import("pdfjs-dist")
+
+      // Tier 1 — text layer (handles standard + mixed PDFs instantly)
+      const pageTexts = await extractTextLayer(pdfjsLib, buffer)
+
+      // Find which pages are image-only / scanned
+      const scannedPages = pageTexts
+        .map((t, i) => ({ t, n: i + 1 }))
+        .filter(({ t }) => t.length < MIN_CHARS_PER_PAGE)
+        .map(({ n }) => n)
+
+      // Tier 2 — OCR only the scanned pages
+      if (scannedPages.length > 0) {
+        try {
+          const imageMap = await extractPageImages(pdfjsLib, buffer, scannedPages)
+
+          if (imageMap.size > 0) {
+            const { createWorker } = await import("tesseract.js")
+            const worker = await createWorker("eng")
+
+            try {
+              for (const [pageNum, { data, width, height }] of imageMap) {
+                try {
+                  const bmp     = rgbaToBmp(data, width, height)
+                  const ocrText = await ocrBuffer(worker, bmp, OCR_TIMEOUT_MS)
+                  pageTexts[pageNum - 1] = ocrText.trim()
+                } catch {
+                  // OCR timed out or failed for this page — leave as-is
+                }
+              }
+            } finally {
+              await worker.terminate()
+            }
+          }
+        } catch {
+          // Tier 2 failed entirely — fall through with whatever Tier 1 extracted
+        }
+      }
+
+      text = pageTexts.join("\n").trim()
+
+    // ── Unsupported ───────────────────────────────────────────────────────────
     } else {
       return NextResponse.json(
         { error: "Unsupported file type. Please upload a PDF, DOCX, TXT, or RTF file." },
-        { status: 400 }
+        { status: 400 },
       )
     }
 
-    text = text.trim()
     if (!text) {
       return NextResponse.json(
         {
           error:
-            "Could not extract text from this PDF. It may be image-based or scanned. " +
-            "Please try converting it to a text-based PDF or DOCX for best results.",
+            "Could not extract text from this file. " +
+            "If it is a scanned PDF, please convert it to a text-based PDF or DOCX for best results.",
         },
-        { status: 422 }
+        { status: 422 },
       )
     }
 
-    return NextResponse.json({ text, extractionMethod })
+    // ── Resume length check ───────────────────────────────────────────────────
+    const tooLong = text.length > TOO_LONG_CHARS
+
+    return NextResponse.json({ text, tooLong })
   } catch (error) {
     console.error("Parse resume error:", error)
     return NextResponse.json(
       { error: "Failed to parse resume. Please try a different file." },
-      { status: 500 }
+      { status: 500 },
     )
   }
 }

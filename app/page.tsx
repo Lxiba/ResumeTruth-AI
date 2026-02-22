@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Sparkles, AlertCircle, Download, Highlighter, Check } from "lucide-react"
+import { Sparkles, AlertCircle, Download, Highlighter, Check, FileWarning } from "lucide-react"
 import { UploadZone } from "@/components/upload-zone"
 import { JobForm } from "@/components/job-form"
 import { GenerateButton } from "@/components/generate-button"
@@ -66,14 +66,16 @@ export default function HomePage() {
   const [jobInfo, setJobInfo] = useState<JobInfo>(DEFAULT_JOB_INFO)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingResumeText, setPendingResumeText] = useState<string | null>(null)
+  const [showLengthWarning, setShowLengthWarning] = useState(false)
 
   const handleModeChange = (mode: OptimizeMode) => {
     setJobInfo((prev) => ({ ...prev, optimizeMode: mode }))
   }
 
   // Safely parse JSON from a fetch response.
-  // If the server returns a non-JSON body (e.g. a Vercel HTML error page on
-  // crash or timeout), this throws a friendly message instead of a raw
+  // If the server returns a non-JSON body (e.g. a platform-level HTML error page
+  // on crash or timeout), this throws a friendly message instead of a raw
   // "Unexpected token" parse error.
   const safeJson = async (response: Response): Promise<any> => {
     const text = await response.text()
@@ -90,8 +92,46 @@ export default function HomePage() {
     }
   }
 
+  // Runs the analysis step and navigates to results.
+  // condense=true tells the AI to also shorten the resume to 2 pages.
+  const runAnalysis = async (resumeText: string, condense: boolean) => {
+    const activeJobInfo: JobInfo = { ...jobInfo, condenseResume: condense }
+
+    const analyzeResponse = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resumeText, jobInfo: activeJobInfo }),
+    })
+
+    const result = await safeJson(analyzeResponse)
+    if (!analyzeResponse.ok) {
+      throw new Error(result.error || "Analysis failed")
+    }
+
+    sessionStorage.setItem("analysisResult", JSON.stringify(result as AnalysisResult))
+    sessionStorage.setItem("jobInfo", JSON.stringify(activeJobInfo))
+    sessionStorage.setItem("originalResumeText", resumeText)
+    router.push("/results")
+  }
+
+  // Called when the user picks an option from the resume-length warning card.
+  const handleLengthChoice = async (condense: boolean) => {
+    if (!pendingResumeText) return
+    setShowLengthWarning(false)
+    setIsLoading(true)
+    try {
+      await runAnalysis(pendingResumeText, condense)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleGenerate = async () => {
     setError(null)
+    setShowLengthWarning(false)
+    setPendingResumeText(null)
 
     if (!selectedFile) {
       setError("Please upload your resume (PDF or DOCX).")
@@ -125,25 +165,16 @@ export default function HomePage() {
 
       const resumeText: string = parseData.text
 
-      // Step 2: Analyze
-      const analyzeResponse = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeText, jobInfo }),
-      })
-
-      const result = await safeJson(analyzeResponse)
-      if (!analyzeResponse.ok) {
-        throw new Error(result.error || "Analysis failed")
+      // Step 1.5: If resume exceeds 2 pages, pause and ask the user
+      if (parseData.tooLong) {
+        setPendingResumeText(resumeText)
+        setShowLengthWarning(true)
+        setIsLoading(false)
+        return
       }
 
-      // Step 3: Store and navigate
-      sessionStorage.setItem("analysisResult", JSON.stringify(result as AnalysisResult))
-      sessionStorage.setItem("jobInfo", JSON.stringify(jobInfo))
-      // Store original text for annotate mode highlighting
-      sessionStorage.setItem("originalResumeText", resumeText)
-
-      router.push("/results")
+      // Step 2: Analyze (no condensing needed)
+      await runAnalysis(resumeText, false)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.")
     } finally {
@@ -259,6 +290,52 @@ export default function HomePage() {
         </div>
 
         <Separator className="border-purple-900/40" />
+
+        {/* Resume length warning */}
+        {showLengthWarning && (
+          <Card className="border-amber-500/40 bg-amber-950/30 backdrop-blur-sm">
+            <CardContent className="pt-5">
+              <div className="mb-4 flex items-start gap-3">
+                <FileWarning className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-200">
+                    Your resume exceeds 2 pages
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-300/80">
+                    We detected over 1,200 words. Most recruiters prefer 1–2 pages.
+                    How would you like to proceed?
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  onClick={() => handleLengthChoice(true)}
+                  className="flex flex-col gap-1 rounded-lg border border-amber-500/50 bg-amber-900/30 px-4 py-3 text-left transition-colors hover:bg-amber-800/40"
+                >
+                  <span className="text-sm font-semibold text-amber-200">
+                    Condense to 2 pages
+                  </span>
+                  <span className="text-xs text-amber-300/70">
+                    AI will trim and tighten your content to fit within 2 pages
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => handleLengthChoice(false)}
+                  className="flex flex-col gap-1 rounded-lg border border-purple-500/40 bg-purple-900/30 px-4 py-3 text-left transition-colors hover:bg-purple-800/40"
+                >
+                  <span className="text-sm font-semibold text-purple-200">
+                    Keep full length
+                  </span>
+                  <span className="text-xs text-purple-300/70">
+                    Optimize or annotate my resume as-is, without changing the length
+                  </span>
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Error */}
         {error && (

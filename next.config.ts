@@ -6,10 +6,21 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "pdf-parse",
     "mammoth",
-    "canvas",
     "pdfjs-dist",
     "tesseract.js",
   ],
+  webpack: (config: any, { isServer }: { isServer: boolean }) => {
+    if (isServer) {
+      // canvas is in optionalDependencies and is not available on Vercel.
+      // Aliasing to false prevents webpack from attempting to bundle it,
+      // which would otherwise cause a build error even with try/catch imports.
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        canvas: false,
+      }
+    }
+    return config
+  },
   turbopack: {
     root: path.resolve(__dirname),
   },

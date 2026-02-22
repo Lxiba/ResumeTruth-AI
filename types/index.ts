@@ -24,4 +24,5 @@ export interface JobInfo {
   description: string
   generateCoverLetter: boolean
   optimizeMode: OptimizeMode
+  condenseResume?: boolean
 }

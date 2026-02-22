@@ -213,6 +213,20 @@ function buildFullPrompt(
 ): { system: string; user: string } {
   const formatLock = detectFormatting(resumeText)
 
+  const condenseBlock = jobInfo.condenseResume
+    ? `
+CONDENSING REQUIREMENT — MANDATORY:
+The candidate's resume exceeds 2 pages. You MUST condense the content so it fits within 2 pages (~600–800 words for the body).
+Rules:
+1. Shorten every bullet to one line, 15–25 words max.
+2. Combine or remove redundant bullet points.
+3. Cut content older than 10 years unless it is directly relevant to this role.
+4. Preserve the strongest achievements, metrics, and most relevant skills.
+5. Do NOT remove section headers, change the structure, or alter formatting characters.
+The final optimizedResume must be short enough to print on two pages.
+`.trim()
+    : ""
+
   const system = `You are ResumeTruth AI, an expert resume analyst and career coach.
 Analyze the candidate's resume against the job description and return a JSON object.
 
@@ -228,6 +242,7 @@ FORMAT RULES FOR optimizedResume — these are absolute, non-negotiable:
 5. Keep sections in the EXACT same order as the original.
 6. Preserve the same blank-line spacing between sections as the original.
 7. Only improve the CONTENT (phrasing, keywords, impact) — never the structure, labels, or formatting characters.
+${condenseBlock ? `\n${condenseBlock}` : ""}
 
 ${MISSING_SKILLS_RULES}
 
@@ -271,10 +286,22 @@ function buildAnnotatePrompt(
   jobInfo: JobInfo,
   currentDate: string
 ): { system: string; user: string } {
+  const condenseBlock = jobInfo.condenseResume
+    ? `
+CONDENSING ANNOTATIONS — MANDATORY:
+The resume is too long. In addition to normal quality annotations, you MUST include at least 5 extra "remove" annotations targeting content that should be cut to bring the resume under 2 pages:
+- Redundant bullets that repeat information stated elsewhere
+- Roles or experience older than 10 years unless directly relevant
+- Generic responsibility statements with no measurable impact
+- Filler phrases and weak adjectives that add length without value
+`.trim()
+    : ""
+
   const system = `You are ResumeTruth AI, an expert resume coach.
 Analyze the resume against the job description and return a JSON object with inline annotations — do NOT rewrite the resume.
 
 ${MISSING_SKILLS_RULES}
+${condenseBlock ? `\n${condenseBlock}` : ""}
 
 You MUST respond with ONLY valid JSON matching this exact structure:
 {
