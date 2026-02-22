@@ -9,7 +9,7 @@ const OCR_SPACE_TIMEOUT_MS = 30000
 const OCR_SPACE_MAX_BYTES = 1_000_000
 
 // ─────────────────────────────────────────
-// OCR.space Extraction
+// OCR.space Extraction (PDF support)
 // ─────────────────────────────────────────
 async function extractWithOcrSpace(buffer: Buffer): Promise<string> {
   if (buffer.length > OCR_SPACE_MAX_BYTES) {
@@ -25,7 +25,13 @@ async function extractWithOcrSpace(buffer: Buffer): Promise<string> {
   form.append("apikey", apiKey)
   form.append("language", "eng")
   form.append("OCREngine", "2")
-  form.append("file", new Blob([buffer]), "resume.pdf")
+
+  // ✅ FIXED TypeScript Blob issue
+  form.append(
+    "file",
+    new Blob([new Uint8Array(buffer)]),
+    "resume.pdf"
+  )
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), OCR_SPACE_TIMEOUT_MS)
@@ -67,7 +73,7 @@ async function extractWithOcrSpace(buffer: Buffer): Promise<string> {
 }
 
 // ─────────────────────────────────────────
-// Route Handler
+// Main Route
 // ─────────────────────────────────────────
 export async function POST(request: NextRequest) {
   try {
@@ -86,7 +92,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ─────────────────────────────
-    // FormData Request (File Upload)
+    // Multipart FormData (File Upload)
     // ─────────────────────────────
     else if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData()
@@ -116,12 +122,12 @@ export async function POST(request: NextRequest) {
       const filename = file.name.toLowerCase()
       const mime = file.type
 
-      // PDF → OCR.space
+      // ───────────── PDF → OCR.space ─────────────
       if (mime === "application/pdf" || filename.endsWith(".pdf")) {
         resumeText = await extractWithOcrSpace(buffer)
       }
 
-      // DOCX
+      // ───────────── DOCX ─────────────
       else if (
         mime ===
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
@@ -131,7 +137,7 @@ export async function POST(request: NextRequest) {
         resumeText = (await mammoth.extractRawText({ buffer })).value.trim()
       }
 
-      // TXT
+      // ───────────── TXT ─────────────
       else if (mime === "text/plain" || filename.endsWith(".txt")) {
         resumeText = buffer.toString("utf-8").trim()
       }
