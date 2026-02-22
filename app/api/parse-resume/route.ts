@@ -6,11 +6,11 @@ export const runtime  = "nodejs"
 export const maxDuration = 60
 
 const MAX_PAGES            = 10
-const MIN_CHARS_PER_PAGE   = 50      // below this → treat page as scanned
+const MIN_CHARS_PER_PAGE   = 50      
 const TOO_LONG_CHARS       = 8_000   // ~1,200–1,500 words ≈ 2 printed pages
-const OCR_TIMEOUT_MS       = 20_000  // hard cap per local tesseract page
-const OCR_SPACE_TIMEOUT_MS = 30_000  // hard cap for OCR.space API call
-const OCR_SPACE_MAX_BYTES  = 1_000_000  // free tier file size limit (1 MB)
+const OCR_TIMEOUT_MS       = 20_000 
+const OCR_SPACE_TIMEOUT_MS = 30_000  
+const OCR_SPACE_MAX_BYTES  = 1_000_000 
 
 // pdfjs-dist legacy build — required for Node.js (standard build needs DOMMatrix)
 const PDFJS_WORKER_URL = pathToFileURL(
