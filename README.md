@@ -30,7 +30,7 @@ Most resume tools give vague, cookie-cutter feedback. ResumeTruth AI reads your 
 
 ## How It Works
 
-1. **Upload your resume** — drag and drop or browse for a PDF, DOCX, TXT, or RTF file
+1. **Upload your resume** — drag and drop or browse for a PDF or DOCX file
 2. **Enter the job details** — paste the job description, job title, and company name
 3. **Choose a mode** — Full Optimization (AI rewrites it) or Annotated Review (AI marks it up)
 4. **Toggle cover letter** — optionally generate a tailored cover letter alongside your resume
@@ -50,7 +50,7 @@ The interface is built with **Next.js** using the App Router and **TypeScript** 
 ### Key Components
 
 **Input**
-- `upload-zone.tsx` — Drag-and-drop file uploader with support for PDF and DOCX.
+- `upload-zone.tsx` — Drag-and-drop file uploader with support for PDF and DOCX
 - `job-form.tsx` — Fields for job title, company, and the job description textarea
 - `generate-button.tsx` — Submit trigger that kicks off the analysis
 
@@ -82,7 +82,7 @@ Accepts a file upload and extracts plain text from it using a 3-tier pipeline:
 | 2 | **pdfjs-dist** (local) | Text-layer PDFs if OCR.space is unavailable |
 | 3 | **Tesseract.js WASM** (local) | Scanned pages if both cloud and text-layer extraction fail |
 
-DOCX files are handled by **mammoth**, and TXT / RTF files are decoded directly. The endpoint also returns a `tooLong` flag when the extracted text exceeds ~1,200 words (2 printed pages), prompting the user to choose between condensing or keeping the full length.
+DOCX files are handled by **mammoth**. The endpoint also returns a `tooLong` flag when the extracted text exceeds ~1,200 words (2 printed pages), prompting the user to choose between condensing or keeping the full length.
 
 **`POST /api/analyze`**
 

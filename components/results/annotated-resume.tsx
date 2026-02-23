@@ -36,17 +36,79 @@ const TYPE_BADGE: Record<AnnotationType, { label: string; className: string; Ico
   },
 }
 
+// Collapse all whitespace runs (including newlines) to a single space
+function collapseWS(s: string): string {
+  return s.replace(/\s+/g, " ").trim()
+}
+
+// Build a map from each character position in the collapsed string back to
+// its position in the original string. Also returns the collapsed string.
+function buildPosMap(original: string): { norm: string; toOrig: number[] } {
+  let norm = ""
+  const toOrig: number[] = []
+  let inWS = true
+  for (let i = 0; i < original.length; i++) {
+    const ws = /\s/.test(original[i])
+    if (ws) {
+      if (!inWS && norm.length > 0) {
+        norm += " "
+        toOrig.push(i)
+        inWS = true
+      }
+    } else {
+      norm += original[i]
+      toOrig.push(i)
+      inWS = false
+    }
+  }
+  return { norm, toOrig }
+}
+
 function buildSegments(text: string, annotations: Annotation[]): Segment[] {
-  // Find all matches in the text
   const ranges: Array<{ start: number; end: number; annotation: Annotation }> = []
+
+  // Precompute normalised map once — used for fallback matching
+  const { norm: normText, toOrig } = buildPosMap(text)
 
   for (const ann of annotations) {
     if (!ann.original?.trim()) continue
-    // Try exact match first, then case-insensitive
-    let idx = text.indexOf(ann.original)
-    if (idx === -1) idx = text.toLowerCase().indexOf(ann.original.toLowerCase())
-    if (idx !== -1) {
-      ranges.push({ start: idx, end: idx + ann.original.length, annotation: ann })
+
+    let start = -1
+    let end = -1
+
+    // 1. Exact match
+    const ei = text.indexOf(ann.original)
+    if (ei !== -1) {
+      start = ei
+      end = ei + ann.original.length
+    }
+
+    // 2. Case-insensitive match
+    if (start === -1) {
+      const ci = text.toLowerCase().indexOf(ann.original.toLowerCase())
+      if (ci !== -1) {
+        start = ci
+        end = ci + ann.original.length
+      }
+    }
+
+    // 3. Normalised whitespace match (handles AI collapsing newlines to spaces)
+    if (start === -1) {
+      const normAnn = collapseWS(ann.original)
+      if (normAnn.length > 0) {
+        const ni = normText.toLowerCase().indexOf(normAnn.toLowerCase())
+        if (ni !== -1) {
+          const ni2 = ni + normAnn.length - 1
+          if (ni < toOrig.length && ni2 < toOrig.length) {
+            start = toOrig[ni]
+            end = toOrig[ni2] + 1
+          }
+        }
+      }
+    }
+
+    if (start !== -1 && end !== -1) {
+      ranges.push({ start, end, annotation: ann })
     }
   }
 
@@ -82,9 +144,15 @@ export function AnnotatedResume({ originalText, annotations }: AnnotatedResumePr
   const [selected, setSelected] = useState<Annotation | null>(null)
 
   const segments = buildSegments(originalText, annotations)
+
+  // Count annotations that were successfully matched (using all three strategies)
+  const normOrigText = collapseWS(originalText)
   const matched = annotations.filter((ann) => {
-    const idx = originalText.indexOf(ann.original)
-    return idx !== -1 || originalText.toLowerCase().indexOf(ann.original.toLowerCase()) !== -1
+    if (!ann.original?.trim()) return false
+    if (originalText.indexOf(ann.original) !== -1) return true
+    if (originalText.toLowerCase().indexOf(ann.original.toLowerCase()) !== -1) return true
+    const normAnn = collapseWS(ann.original)
+    return normAnn.length > 0 && normOrigText.toLowerCase().includes(normAnn.toLowerCase())
   })
 
   const counts = {

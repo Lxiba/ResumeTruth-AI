@@ -9,7 +9,10 @@ interface UploadZoneProps {
   onClear: () => void
 }
 
-const ACCEPTED_TYPES = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "text/plain"]
+const ACCEPTED_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]
 const ACCEPTED_EXTENSIONS = [".pdf", ".docx"]
 
 function isAccepted(file: File): boolean {

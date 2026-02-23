@@ -159,7 +159,13 @@ export default function HomePage() {
         throw new Error(parseData.error || "Failed to parse resume")
       }
 
-      const resumeText: string = parseData.text
+      const resumeText: string = (parseData.text as string)
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .replace(/[^\S\n]+/g, " ")
+        .replace(/ \n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim()
 
       // Step 1.5: If resume exceeds 2 pages, pause and ask the user
       if (parseData.tooLong) {
@@ -189,7 +195,7 @@ export default function HomePage() {
       </header>
 
       {/* Hero */}
-      <div className="mx-auto max-w-5xl px-4 py-12 text-center">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:py-12 text-center">
         <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
           Know Your{" "}
           <span className="bg-gradient-to-r from-purple-400 to-purple-600 bg-clip-text text-transparent">

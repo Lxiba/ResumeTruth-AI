@@ -184,7 +184,7 @@ Dear [Recruiter name if found, otherwise "Hiring Manager"],
 
 [PARAGRAPH 1 — THE HOOK: 3-4 sentences. Open with a bold, specific statement about the candidate's biggest relevant achievement with a real metric from the resume (e.g., "I cut onboarding time by 35% by redesigning the pipeline"). Name the exact role and company, then state specifically why THIS company excites the candidate — reference something concrete from the job description (mission, product, scale, market). Never open with "I am writing to apply".]
 
-[PARAGRAPH 2 — PROOF OF FIT: 4-5 sentences. Take 2-3 explicit requirements from the job description and pair each with a concrete, numbered achievement from the resume. Name the technologies, team sizes, revenue figures, or timeframes involved. Show the direct evidence — not opinions.]
+[PARAGRAPH 2 — SKILLS & PROJECT MATCH: 4-5 sentences. Explicitly name ALL significant skills, technologies, and projects from the resume that directly match the key requirements in the job description. For each match, link it to a concrete result or measurable impact — include numbers, team sizes, or timeframes where available. Be specific: mention project names, stack details, and real outcomes. Show direct evidence, not opinions.]
 
 [PARAGRAPH 3 — VALUE PROPOSITION: 3-4 sentences. Articulate what the candidate uniquely brings that others won't. Connect their background directly to a challenge or goal implied by the job description. Forward-looking, confident, specific.]
 
@@ -200,7 +200,7 @@ STYLE RULES:
 - Every claim must tie back to something real in the resume
 - Active voice throughout
 - Banned phrases: "I am passionate about", "I believe I would be a great fit", "I look forward to hearing from you", "I am writing to apply"
-- Length: 300-380 words for the body only (not counting header/footer)
+- Length: 260-310 words for the body only (paragraphs 1–4 only, not counting the header or sign-off)
 - Return the entire cover letter as a single JSON string value with \\n for newlines`
 }
 
@@ -321,9 +321,9 @@ You MUST respond with ONLY valid JSON matching this exact structure:
 }
 
 Annotation types:
-- "remove": This text weakens the resume and should be deleted entirely. suggestion explains why.
-- "replace": This text should be swapped for something stronger. suggestion states what to write instead.
-- "reformat": This text is factually fine but poorly worded/structured. suggestion shows how to rephrase it.
+- "remove": This text weakens the resume and should be deleted entirely. suggestion explains why in 1-2 sentences.
+- "replace": This text should be swapped for stronger content. The "suggestion" field must be the ACTUAL replacement text — write the improved sentence or bullet directly, not a description of what to change.
+- "reformat": This text is factually correct but poorly worded or structured. The "suggestion" field must be the ACTUAL rewritten replacement text — write the improved version directly, not a description of what to change.
 
 CRITICAL RULES for "original":
 1. Copy the text VERBATIM from the resume — exact capitalization, punctuation, spacing.

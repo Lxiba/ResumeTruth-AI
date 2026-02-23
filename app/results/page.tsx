@@ -67,7 +67,7 @@ export default function ResultsPage() {
             </Button>
             <div className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-purple-400" />
-              <span className="font-bold text-white">ResumeTruth AI</span>
+              <span className="hidden font-bold text-white sm:inline">ResumeTruth AI</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -81,9 +81,17 @@ export default function ResultsPage() {
               }
             >
               {isAnnotateMode ? (
-                <><Highlighter className="mr-1.5 h-3 w-3" />Annotated Review</>
+                <>
+                  <Highlighter className="mr-1.5 h-3 w-3" />
+                  <span className="hidden sm:inline">Annotated Review</span>
+                  <span className="sm:hidden">Review</span>
+                </>
               ) : (
-                <><Download className="mr-1.5 h-3 w-3" />Full Optimization</>
+                <>
+                  <Download className="mr-1.5 h-3 w-3" />
+                  <span className="hidden sm:inline">Full Optimization</span>
+                  <span className="sm:hidden">Optimized</span>
+                </>
               )}
             </Badge>
             {jobInfo && (
