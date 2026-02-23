@@ -22,8 +22,8 @@ Most resume tools give vague, cookie-cutter feedback. ResumeTruth AI reads your 
 | **Strength Analysis** | Highlights what you already have that aligns with the job requirements |
 | **Missing Skills Detection** | Pinpoints specific skills and keywords from the job posting that are absent from your resume |
 | **Full Optimization Mode** | AI rewrites your entire resume — preserving your original structure — with ATS keywords injected and impact statements strengthened, downloadable as a PDF |
-| **Annotated Review Mode** | Keeps your original resume untouched and overlays color-coded inline suggestions (remove / replace / reformat) so you can make edits yourself and retain your embedded links |
-| **Cover Letter Generator** | Produces a professionally formatted cover letter with a four-paragraph structure, real metrics pulled from your resume, and recipient details extracted from the job posting |
+| **Annotated Review Mode** | Keeps your original resume untouched and overlays color-coded inline suggestions (remove / replace / reformat). Replace and reformat suggestions are fully rewritten — opening with a strong action verb, naming a specific technology, and ending with a measurable outcome — never a copy of the original text |
+| **Cover Letter Generator** | Produces a professionally formatted, ~330-word cover letter that names the candidate's actual projects, technologies, and metrics from the resume and maps them directly to the job requirements |
 | **Resume Length Check** | Detects resumes over 2 pages and gives you the choice to condense automatically or keep the full length |
 
 ---
