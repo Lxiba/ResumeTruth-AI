@@ -46,7 +46,7 @@ export async function analyzeResume(
         { role: "user", content: user },
       ],
       temperature: 0.3,
-      max_tokens: 6144,
+      max_tokens: 4096,
     }),
   })
 
