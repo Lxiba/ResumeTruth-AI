@@ -200,7 +200,7 @@ STYLE RULES:
 - Every claim must tie back to something real in the resume
 - Active voice throughout
 - Banned phrases: "I am passionate about", "I believe I would be a great fit", "I look forward to hearing from you", "I am writing to apply"
-- Length: 250-330 words for the body only (paragraphs 1–4 only, not counting the header or sign-off). Aim for ~290 words. Keep every sentence tight and purposeful — no filler.
+- Length: 300-340 words for the body only (paragraphs 1–4, not counting the header or sign-off). Aim for ~320 words. Every sentence must earn its place — no filler, no repetition.
 - Return the entire cover letter as a single JSON string value with \\n for newlines`
 }
 
@@ -313,24 +313,56 @@ You MUST respond with ONLY valid JSON matching this exact structure:
     {
       "original": "<verbatim text copied exactly from the resume>",
       "type": "remove" | "replace" | "reformat",
-      "suggestion": "<brief 1-2 sentence note>"
+      "suggestion": "<for remove: 1-2 sentence explanation why it hurts | for replace/reformat: the FULL REWRITTEN TEXT — not a description>"
     }
   ],
   ${jobInfo.generateCoverLetter ? '"coverLetter": "<cover letter — see format rules below>",' : ""}
   "aiExplanation": [<string>, ...]
 }
 
-Annotation types:
-- "remove": This text weakens the resume and should be deleted entirely. suggestion explains why in 1-2 sentences.
-- "replace": This text should be swapped for stronger content. The "suggestion" field must be the ACTUAL replacement text — write the improved sentence or bullet directly, not a description of what to change.
-- "reformat": This text is factually correct but poorly worded or structured. The "suggestion" field must be the ACTUAL rewritten replacement text — write the improved version directly, not a description of what to change.
+════ ANNOTATION TYPE RULES ════
+
+"remove" — Only flag text that ACTIVELY DAMAGES the candidate's chances. Qualifying criteria:
+  • Pure clichés with zero specificity: "team player", "hard worker", "results-driven", "go-getter", "passionate about"
+  • Responsibility-only bullets that list duties with no result, metric, or impact
+  • Content with zero relevance to this specific role
+  • Redundant statements that repeat something already expressed elsewhere in the resume
+  suggestion: 1–2 sentences explaining exactly why this hurts the application.
+
+"replace" — Flag a specific phrase or bullet that can be made SUBSTANTIALLY stronger by adding a metric,
+  swapping a weak verb, or inserting a job-relevant keyword from the job description.
+  The "suggestion" field must be the full REWRITTEN text. Rules:
+  • Start with a strong past-tense action verb (Built, Led, Designed, Reduced, Automated, Delivered…)
+  • Name the specific technology, skill, or tool
+  • End with a concrete, measurable outcome — even an estimate (e.g., "~30% faster", "saving ~4 hrs/week")
+  EXAMPLE:
+    original:    "Worked on backend services for the platform"
+    BAD suggestion (too similar): "Worked on backend services and improved the platform performance"
+    GOOD suggestion: "Engineered RESTful backend services in Node.js, reducing average API response time by 35% and supporting 50K monthly active users"
+
+"reformat" — Flag a sentence that is factually sound but structurally weak (passive voice, buried lead,
+  responsibility framing). You must RESTRUCTURE it — not just rephrase with synonyms.
+  The "suggestion" field must completely rebuild the sentence:
+  → Lead with a strong action verb + specific technology → follow with a concrete outcome or impact
+  EXAMPLE:
+    original:    "Responsible for improving the deployment process"
+    BAD suggestion (same structure): "Improved the deployment process for better efficiency"
+    GOOD suggestion: "Automated CI/CD pipeline using GitHub Actions, cutting deployment time from 2 hours to 12 minutes"
+
+════ MANDATORY SELF-CHECK before including any "replace" or "reformat" ════
+Answer all three questions. If ANY answer is NO, delete the annotation — do not include it.
+  ① Is the suggestion MORE than 50% different in wording from the original text? (Not just synonyms)
+  ② Does the suggestion contain at least one concrete detail NOT present in the original — a metric, a named tool, a specific outcome, or a job-description keyword?
+  ③ Is the suggestion plausible given the resume content? (Do not invent facts the resume doesn't support — use approximate figures or generalise the tech if needed, but stay honest)
+Quality beats quantity: 6 sharp, actionable annotations are far more valuable than 14 that repeat the original.
 
 CRITICAL RULES for "original":
 1. Copy the text VERBATIM from the resume — exact capitalization, punctuation, spacing.
-2. Keep each snippet short: a phrase, bullet point, or sentence (5-40 words max). Do NOT copy entire paragraphs.
+2. Keep each snippet short: one phrase, bullet point, or sentence (5–40 words). Never copy whole paragraphs.
 3. Each snippet must appear exactly once in the resume.
-4. Produce 8-15 annotations spread across different sections (not all from one area).
-5. Do NOT include an "optimizedResume" field.
+4. Produce 8–14 annotations spread across different sections (not all from one area).
+5. Never annotate the candidate's name, email, phone number, LinkedIn URL, or dates.
+6. Do NOT include an "optimizedResume" field.
 ${jobInfo.generateCoverLetter ? coverLetterInstructions(jobInfo, currentDate) : ""}`
 
   const user = `Annotate this resume for the position below and return the result as JSON.
