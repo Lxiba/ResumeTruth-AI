@@ -27,3 +27,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Resume template files (local reference only — not deployed)
+Resume-Template.pdf
+

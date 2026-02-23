@@ -134,6 +134,152 @@ function buildDrawLines(
   return out
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Jake's Resume template generator
+// US Letter, Times Roman, centered header, black section rules, right-aligned dates
+// ─────────────────────────────────────────────────────────────────────────────
+export async function generateJakesResumePDF(content: string): Promise<Uint8Array> {
+  const PAGE_W   = 612          // US Letter
+  const PAGE_H   = 792
+  const MX       = 46           // left/right margin (~0.64 in)
+  const MT       = 40           // top margin
+  const MB       = 36           // bottom margin
+  const USABLE   = PAGE_W - MX * 2
+  const LH       = 13.5         // base line height
+  const NAME_SZ  = 20
+  const CONT_SZ  = 9
+  const BODY_SZ  = 10
+  const SECT_SZ  = 10
+
+  const pdfDoc   = await PDFDocument.create()
+  const bodyFont = await pdfDoc.embedFont(StandardFonts.TimesRoman)
+  const boldFont = await pdfDoc.embedFont(StandardFonts.TimesRomanBold)
+  const BLACK    = rgb(0, 0, 0)
+  const DARK     = rgb(0.12, 0.12, 0.12)
+
+  let page = pdfDoc.addPage([PAGE_W, PAGE_H])
+  let y    = PAGE_H - MT
+
+  const needPage = (extra = 1) => {
+    if (y - LH * extra < MB) {
+      page = pdfDoc.addPage([PAGE_W, PAGE_H])
+      y    = PAGE_H - MT
+    }
+  }
+
+  const lines = content.split("\n")
+
+  // ── Parse header block (lines before first blank or first section heading) ──
+  const headerLines: string[] = []
+  let bodyStart = 0
+  for (let i = 0; i < lines.length; i++) {
+    const t = lines[i].trim()
+    if (!t || isHeadingLine(t)) { bodyStart = i; break }
+    headerLines.push(t)
+    bodyStart = i + 1
+  }
+
+  // ── Render header ────────────────────────────────────────────────────────
+  if (headerLines.length > 0) {
+    const name = headerLines[0]
+    const nw   = boldFont.widthOfTextAtSize(name, NAME_SZ)
+    page.drawText(name, {
+      x: PAGE_W / 2 - nw / 2, y,
+      size: NAME_SZ, font: boldFont, color: BLACK,
+    })
+    y -= LH * 1.9
+
+    for (const cl of headerLines.slice(1)) {
+      if (!cl) continue
+      needPage()
+      const cw = bodyFont.widthOfTextAtSize(cl, CONT_SZ)
+      page.drawText(cl, {
+        x: Math.max(MX, PAGE_W / 2 - cw / 2), y,
+        size: CONT_SZ, font: bodyFont, color: DARK,
+      })
+      y -= LH
+    }
+    y -= LH * 0.4
+  }
+
+  // ── Render body ──────────────────────────────────────────────────────────
+  // Two-column heuristic: "Left text   Right text" (3+ spaces separating them)
+  const TWO_COL = /^(.+?)\s{3,}(.+)$/
+
+  for (let i = bodyStart; i < lines.length; i++) {
+    const t = lines[i].trim()
+
+    if (!t) { y -= LH * 0.25; continue }
+
+    // Section heading
+    if (isHeadingLine(t)) {
+      needPage(3)
+      y -= LH * 0.5
+      page.drawText(t.toUpperCase(), {
+        x: MX, y, size: SECT_SZ, font: boldFont, color: BLACK,
+      })
+      y -= LH * 0.35
+      page.drawLine({
+        start: { x: MX, y }, end: { x: PAGE_W - MX, y },
+        thickness: 0.75, color: BLACK,
+      })
+      y -= LH * 0.8
+      continue
+    }
+
+    // Bullet
+    const bullet = parseBullet(t)
+    if (bullet) {
+      const BX = MX + 10
+      const TX = BX + 10
+      const wrapped = wrapWords(bullet.rest, bodyFont, BODY_SZ, USABLE - (TX - MX))
+      for (let wi = 0; wi < Math.max(wrapped.length, 1); wi++) {
+        needPage()
+        if (wi === 0) page.drawText("•", { x: BX, y, size: BODY_SZ, font: bodyFont, color: DARK })
+        if (wrapped[wi]) page.drawText(wrapped[wi], { x: TX, y, size: BODY_SZ, font: bodyFont, color: DARK })
+        y -= LH
+      }
+      continue
+    }
+
+    // Two-column entry (company/role | date/location)
+    const tc = t.match(TWO_COL)
+    if (tc) {
+      const left  = tc[1].trim()
+      const right = tc[2].trim()
+      // Only treat as two-column when the right part is short (date or location)
+      const isDateLike   = /\d{4}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/i.test(right)
+      const isLocLike    = /[A-Z][a-z]+,\s*[A-Z]{2,}|Remote|Hybrid|On-site/i.test(right)
+      if ((isDateLike || isLocLike) && right.length < 50) {
+        const rw      = bodyFont.widthOfTextAtSize(right, BODY_SZ)
+        const leftMax = USABLE - rw - 8
+        const wLeft   = wrapWords(left, boldFont, BODY_SZ, leftMax)
+        for (let wi = 0; wi < Math.max(wLeft.length, 1); wi++) {
+          needPage()
+          if (wLeft[wi]) page.drawText(wLeft[wi], { x: MX, y, size: BODY_SZ, font: boldFont, color: BLACK })
+          if (wi === 0) page.drawText(right, { x: PAGE_W - MX - rw, y, size: BODY_SZ, font: bodyFont, color: DARK })
+          y -= LH
+        }
+        continue
+      }
+    }
+
+    // Plain text
+    const wrapped = wrapWords(t, bodyFont, BODY_SZ, USABLE)
+    for (const wl of wrapped) {
+      needPage()
+      page.drawText(wl, { x: MX, y, size: BODY_SZ, font: bodyFont, color: DARK })
+      y -= LH
+    }
+    if (!wrapped.length) y -= LH
+  }
+
+  return pdfDoc.save()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Original styled PDF generator (purple/navy theme, A4)
+// ─────────────────────────────────────────────────────────────────────────────
 export async function generatePDF(content: string, title: string): Promise<Uint8Array> {
   const pdfDoc   = await PDFDocument.create()
   const font     = await pdfDoc.embedFont(StandardFonts.Helvetica)

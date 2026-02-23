@@ -13,6 +13,7 @@ import { ResumePreview } from "@/components/results/resume-preview"
 import { CoverLetterPreview } from "@/components/results/cover-letter-preview"
 import { AiExplanation } from "@/components/results/ai-explanation"
 import { DownloadButton } from "@/components/results/download-button"
+import { JakesDownloadButton } from "@/components/results/jakes-download-button"
 import { AnnotatedResume } from "@/components/results/annotated-resume"
 import type { AnalysisResult, JobInfo } from "@/types"
 
@@ -140,15 +141,21 @@ export default function ResultsPage() {
         {/* ── FULL MODE: Optimized resume ── */}
         {!isAnnotateMode && result.optimizedResume && (
           <Card className="border-purple-800/30 bg-[#2A0E4A]/60 backdrop-blur-sm">
-            <CardHeader className="flex flex-row items-center justify-between pb-3">
+            <CardHeader className="flex flex-row items-start justify-between gap-3 pb-3">
               <CardTitle className="text-base font-semibold text-white">
                 AI-Optimized Resume
               </CardTitle>
-              <DownloadButton
-                content={result.optimizedResume}
-                filename={resumeFilename}
-                label="Download PDF"
-              />
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <DownloadButton
+                  content={result.optimizedResume}
+                  filename={resumeFilename}
+                  label="Download PDF"
+                />
+                <JakesDownloadButton
+                  content={result.optimizedResume}
+                  filename={`jakes-${resumeFilename}`}
+                />
+              </div>
             </CardHeader>
             <CardContent>
               <ResumePreview content={result.optimizedResume} />
