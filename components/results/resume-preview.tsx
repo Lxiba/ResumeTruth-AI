@@ -37,8 +37,8 @@ export function ResumePreview({ content }: ResumePreviewProps) {
           )}
         </Button>
       </div>
-      <div className="max-h-[500px] overflow-y-auto rounded-lg border border-purple-800/30 bg-[#0B1F3A]/60 p-5 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-purple-800">
-        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-purple-100">
+      <div className="max-h-[500px] overflow-y-auto overflow-x-hidden rounded-lg border border-purple-800/30 bg-[#0B1F3A]/60 p-4 sm:p-5">
+        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-purple-100">
           {content}
         </pre>
       </div>

@@ -25,7 +25,7 @@ export function MissingSkills({ skills }: MissingSkillsProps) {
           <Badge
             key={skill}
             variant="outline"
-            className="border-purple-600/50 bg-purple-900/30 text-purple-200 hover:bg-purple-800/40"
+            className="max-w-full break-words border-purple-600/50 bg-purple-900/30 text-purple-200 hover:bg-purple-800/40"
           >
             {skill}
           </Badge>

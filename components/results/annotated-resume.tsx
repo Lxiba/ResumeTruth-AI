@@ -36,13 +36,36 @@ const TYPE_BADGE: Record<AnnotationType, { label: string; className: string; Ico
   },
 }
 
-// Collapse all whitespace runs (including newlines) to a single space
+// ─── Heading detection ────────────────────────────────────────────────────────
+
+const HEADING_KEYWORDS = new Set([
+  "experience", "work experience", "professional experience", "employment", "employment history",
+  "education", "academic background", "academic history",
+  "skills", "technical skills", "core competencies", "key skills", "competencies",
+  "projects", "personal projects", "key projects", "notable projects",
+  "certifications", "certificates", "certification", "licenses",
+  "awards", "honors", "achievements", "accomplishments",
+  "summary", "professional summary", "executive summary", "objective", "profile", "about",
+  "publications", "research", "volunteer", "volunteering", "volunteer work",
+  "languages", "interests", "hobbies", "references", "additional information",
+  "contact", "contact information", "leadership", "training", "professional development",
+])
+
+function isHeadingLine(line: string): boolean {
+  const t = line.trim()
+  if (!t || t.length > 60 || t.includes("@") || t.includes("|")) return false
+  if (!/[a-zA-Z]/.test(t)) return false
+  if (t === t.toUpperCase() && /[A-Z]{2,}/.test(t)) return true
+  if (HEADING_KEYWORDS.has(t.toLowerCase())) return true
+  return false
+}
+
+// ─── Whitespace helpers ───────────────────────────────────────────────────────
+
 function collapseWS(s: string): string {
   return s.replace(/\s+/g, " ").trim()
 }
 
-// Build a map from each character position in the collapsed string back to
-// its position in the original string. Also returns the collapsed string.
 function buildPosMap(original: string): { norm: string; toOrig: number[] } {
   let norm = ""
   const toOrig: number[] = []
@@ -64,10 +87,10 @@ function buildPosMap(original: string): { norm: string; toOrig: number[] } {
   return { norm, toOrig }
 }
 
+// ─── Segment builder ──────────────────────────────────────────────────────────
+
 function buildSegments(text: string, annotations: Annotation[]): Segment[] {
   const ranges: Array<{ start: number; end: number; annotation: Annotation }> = []
-
-  // Precompute normalised map once — used for fallback matching
   const { norm: normText, toOrig } = buildPosMap(text)
 
   for (const ann of annotations) {
@@ -78,21 +101,15 @@ function buildSegments(text: string, annotations: Annotation[]): Segment[] {
 
     // 1. Exact match
     const ei = text.indexOf(ann.original)
-    if (ei !== -1) {
-      start = ei
-      end = ei + ann.original.length
-    }
+    if (ei !== -1) { start = ei; end = ei + ann.original.length }
 
-    // 2. Case-insensitive match
+    // 2. Case-insensitive
     if (start === -1) {
       const ci = text.toLowerCase().indexOf(ann.original.toLowerCase())
-      if (ci !== -1) {
-        start = ci
-        end = ci + ann.original.length
-      }
+      if (ci !== -1) { start = ci; end = ci + ann.original.length }
     }
 
-    // 3. Normalised whitespace match (handles AI collapsing newlines to spaces)
+    // 3. Normalised whitespace (handles AI collapsing newlines to spaces)
     if (start === -1) {
       const normAnn = collapseWS(ann.original)
       if (normAnn.length > 0) {
@@ -107,23 +124,16 @@ function buildSegments(text: string, annotations: Annotation[]): Segment[] {
       }
     }
 
-    if (start !== -1 && end !== -1) {
-      ranges.push({ start, end, annotation: ann })
-    }
+    if (start !== -1 && end !== -1) ranges.push({ start, end, annotation: ann })
   }
 
-  // Sort by position, drop overlaps
   ranges.sort((a, b) => a.start - b.start)
   const clean: typeof ranges = []
   let lastEnd = 0
   for (const r of ranges) {
-    if (r.start >= lastEnd) {
-      clean.push(r)
-      lastEnd = r.end
-    }
+    if (r.start >= lastEnd) { clean.push(r); lastEnd = r.end }
   }
 
-  // Build segments
   const segments: Segment[] = []
   let pos = 0
   for (const r of clean) {
@@ -135,6 +145,25 @@ function buildSegments(text: string, annotations: Annotation[]): Segment[] {
   return segments
 }
 
+// ─── Split flat segments into per-line arrays ─────────────────────────────────
+// Each \n in any segment's text starts a new "line" entry.
+
+function segmentsToLines(segments: Segment[]): Segment[][] {
+  const lines: Segment[][] = [[]]
+  for (const seg of segments) {
+    const parts = seg.text.split("\n")
+    for (let i = 0; i < parts.length; i++) {
+      if (i > 0) lines.push([])
+      if (parts[i] !== "" || seg.annotation) {
+        lines[lines.length - 1].push({ text: parts[i], annotation: seg.annotation })
+      }
+    }
+  }
+  return lines
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 interface AnnotatedResumeProps {
   originalText: string
   annotations: Annotation[]
@@ -144,8 +173,9 @@ export function AnnotatedResume({ originalText, annotations }: AnnotatedResumePr
   const [selected, setSelected] = useState<Annotation | null>(null)
 
   const segments = buildSegments(originalText, annotations)
+  const lines = segmentsToLines(segments)
 
-  // Count annotations that were successfully matched (using all three strategies)
+  // Count matched annotations (all three strategies)
   const normOrigText = collapseWS(originalText)
   const matched = annotations.filter((ann) => {
     if (!ann.original?.trim()) return false
@@ -179,32 +209,53 @@ export function AnnotatedResume({ originalText, annotations }: AnnotatedResumePr
           )
         })}
         <span className="ml-auto text-xs text-purple-500">
-          {matched.length} of {annotations.length} annotations matched
+          {matched.length} of {annotations.length} matched
         </span>
       </div>
 
       {/* Resume text with highlights */}
-      <div className="max-h-[520px] overflow-y-auto rounded-lg border border-purple-800/30 bg-[#0B1F3A]/60 p-5">
-        <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-purple-100">
-          {segments.map((seg, i) =>
-            seg.annotation ? (
-              <mark
-                key={i}
-                onClick={() =>
-                  setSelected(selected === seg.annotation ? null : seg.annotation!)
-                }
-                className={`rounded-sm px-0.5 ${TYPE_STYLES[seg.annotation.type]} ${
-                  selected === seg.annotation ? "ring-2 ring-white/30" : ""
+      <div className="max-h-[520px] overflow-y-auto overflow-x-hidden rounded-lg border border-purple-800/30 bg-[#0B1F3A]/60 p-4 sm:p-5">
+        <div className="font-mono text-xs leading-relaxed text-purple-100">
+          {lines.map((lineSegs, li) => {
+            const lineText = lineSegs.map((s) => s.text).join("")
+            const isBlank = !lineText.trim()
+            const isHeading = !isBlank && isHeadingLine(lineText)
+
+            return (
+              <div
+                key={li}
+                className={`whitespace-pre-wrap break-words${
+                  isHeading
+                    ? " mt-5 mb-1 font-bold text-white tracking-wide"
+                    : isBlank
+                    ? " h-3"
+                    : ""
                 }`}
-                style={{ backgroundColor: "transparent" }}
               >
-                {seg.text}
-              </mark>
-            ) : (
-              <span key={i}>{seg.text}</span>
+                {isBlank
+                  ? null
+                  : lineSegs.map((seg, si) =>
+                      seg.annotation ? (
+                        <mark
+                          key={si}
+                          onClick={() =>
+                            setSelected(selected === seg.annotation ? null : seg.annotation!)
+                          }
+                          className={`rounded-sm px-0.5 ${TYPE_STYLES[seg.annotation.type]} ${
+                            selected === seg.annotation ? "ring-2 ring-white/30" : ""
+                          }`}
+                          style={{ backgroundColor: "transparent" }}
+                        >
+                          {seg.text}
+                        </mark>
+                      ) : (
+                        <span key={si}>{seg.text}</span>
+                      )
+                    )}
+              </div>
             )
-          )}
-        </pre>
+          })}
+        </div>
       </div>
 
       {/* Selected annotation callout */}
@@ -230,11 +281,11 @@ export function AnnotatedResume({ originalText, annotations }: AnnotatedResumePr
                 </span>
               )
             })()}
-            <div className="space-y-1.5">
-              <p className="font-mono text-xs italic opacity-70">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <p className="break-words font-mono text-xs italic opacity-70">
                 &ldquo;{selected.original}&rdquo;
               </p>
-              <p className="text-sm leading-relaxed">{selected.suggestion}</p>
+              <p className="break-words text-sm leading-relaxed">{selected.suggestion}</p>
             </div>
           </div>
         </div>

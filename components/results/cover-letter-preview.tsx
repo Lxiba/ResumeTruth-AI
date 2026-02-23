@@ -96,7 +96,7 @@ export function CoverLetterPreview({ content }: CoverLetterPreviewProps) {
         </Button>
       </div>
 
-      <div className="max-h-[600px] overflow-y-auto rounded-lg border border-purple-800/30 bg-[#0B1F3A]/60">
+      <div className="max-h-[600px] overflow-y-auto overflow-x-hidden rounded-lg border border-purple-800/30 bg-[#0B1F3A]/60">
         {parsed ? (
           <div className="space-y-0">
             {/* ── Sender header block ── */}
@@ -142,7 +142,7 @@ export function CoverLetterPreview({ content }: CoverLetterPreviewProps) {
 
               {/* Body paragraphs */}
               {parsed.bodyParagraphs.map((para, i) => (
-                <p key={i} className="text-sm leading-7 text-purple-100">
+                <p key={i} className="break-words text-sm leading-7 text-purple-100">
                   {para}
                 </p>
               ))}

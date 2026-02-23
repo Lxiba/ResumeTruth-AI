@@ -149,7 +149,7 @@ STEP 4 — semantic equivalence
   "PostgreSQL" satisfies "relational database" | "Scrum Master" satisfies "Agile"
 
 Only add a skill to missingSkills if ALL FOUR checks above confirm it is truly absent.
-List each missing skill as it appears in the job description (keep original capitalisation).
+List each missing skill as a concise keyword or short phrase — 1–5 words maximum. Never write a full sentence. Extract just the skill name or concept (e.g., "Docker", "system design", "CI/CD pipelines"). Keep the original capitalisation from the job description.
 `.trim()
 
 // ─── Shared cover letter instructions ────────────────────────────────────────
@@ -200,7 +200,7 @@ STYLE RULES:
 - Every claim must tie back to something real in the resume
 - Active voice throughout
 - Banned phrases: "I am passionate about", "I believe I would be a great fit", "I look forward to hearing from you", "I am writing to apply"
-- Length: 260-310 words for the body only (paragraphs 1–4 only, not counting the header or sign-off)
+- Length: 250-330 words for the body only (paragraphs 1–4 only, not counting the header or sign-off). Aim for ~290 words. Keep every sentence tight and purposeful — no filler.
 - Return the entire cover letter as a single JSON string value with \\n for newlines`
 }
 

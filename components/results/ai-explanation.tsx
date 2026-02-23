@@ -39,7 +39,7 @@ export function AiExplanation({ explanations }: AiExplanationProps) {
           </button>
           {expandedIndex === index && (
             <div className="border-t border-purple-800/20 px-4 py-3">
-              <p className="text-sm leading-relaxed text-purple-200">{explanation}</p>
+              <p className="break-words text-sm leading-relaxed text-purple-200">{explanation}</p>
             </div>
           )}
         </div>
