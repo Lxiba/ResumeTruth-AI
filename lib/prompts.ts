@@ -200,7 +200,7 @@ STYLE RULES:
 - Every claim must tie back to something real in the resume
 - Active voice throughout
 - Banned phrases: "I am passionate about", "I believe I would be a great fit", "I look forward to hearing from you", "I am writing to apply"
-- Length: 250-330 words for the body only (paragraphs 1–4 only, not counting the header or sign-off). Aim for ~290 words. Keep every sentence tight and purposeful — no filler.
+- Length: aim for ~330 words for the body only (paragraphs 1–4, not counting the header or sign-off). Be thorough and specific — name the candidate's actual projects, technologies, and metrics from the resume. Every sentence must earn its place — no filler or vague statements.
 - Return the entire cover letter as a single JSON string value with \\n for newlines`
 }
 
@@ -321,9 +321,9 @@ You MUST respond with ONLY valid JSON matching this exact structure:
 }
 
 Annotation types:
-- "remove": This text weakens the resume and should be deleted entirely. suggestion explains why in 1-2 sentences.
-- "replace": This text should be swapped for stronger content. The "suggestion" field must be the ACTUAL replacement text — write the improved sentence or bullet directly, not a description of what to change.
-- "reformat": This text is factually correct but poorly worded or structured. The "suggestion" field must be the ACTUAL rewritten replacement text — write the improved version directly, not a description of what to change.
+- "remove": This text weakens the resume and should be deleted entirely. suggestion explains why in 1-2 sentences. Only flag pure clichés ("team player", "results-driven", "passionate about"), duty-only bullets with zero impact or metric, or content with no relevance to this role.
+- "replace": Flag a bullet or phrase that can be made SUBSTANTIALLY stronger. The "suggestion" field must be the FULL rewritten text — never a description of what to change. Rules: (1) open with a strong past-tense action verb (Built, Led, Reduced, Automated, Delivered, Engineered…), (2) name the specific technology or tool involved, (3) close with a concrete measurable outcome or honest estimate (e.g. "~30% faster", "saving ~5 hrs/week"). If your rewrite would share more than 60% of the same words as the original, skip this annotation entirely.
+- "reformat": Flag structurally weak text — passive voice, buried lead, or responsibility-framing ("Responsible for…", "Worked on…", "Helped with…"). The "suggestion" must COMPLETELY rebuild the sentence structure. Do not swap synonyms — restructure: strong action verb → specific technology → concrete result. If the rebuilt version follows the same sentence structure as the original, skip this annotation.
 
 CRITICAL RULES for "original":
 1. Copy the text VERBATIM from the resume — exact capitalization, punctuation, spacing.
