@@ -92,7 +92,7 @@ The core endpoint. Receives the extracted resume text and job details, builds th
 
 **`lib/openrouter.ts`** — AI integration layer
 
-Sends requests to the **Hugging Face Inference API** using the **Qwen 2.5 72B Instruct** model. Handles response parsing and validation, and surfaces descriptive error messages when the API call fails.
+Sends requests to the **Groq Inference API** using the **Llama 3.3 70B Versatile** model. Handles response parsing and validation, and surfaces descriptive error messages when the API call fails.
 
 **`lib/prompts.ts`** — Prompt engineering
 
@@ -110,7 +110,7 @@ Uses **pdf-lib** to produce A4 PDFs on the server. Handles heading detection, fo
 - Next.js (App Router) with React and TypeScript
 
 **AI**
-- Hugging Face Inference API — Qwen 2.5 72B Instruct model
+- Groq Inference API — Llama 3.3 70B Versatile model
 
 **Document Parsing**
 - OCR.space API — cloud OCR for text and scanned PDFs
@@ -173,7 +173,7 @@ Resume length check — if > 2 pages: prompt user to condense or keep full
         ↓
 User submits job details + selects mode
         ↓
-POST /api/analyze  →  prompt builder  →  Hugging Face AI (Qwen 2.5 72B)
+POST /api/analyze  →  prompt builder  →  Groq AI (Llama 3.3 70B)
         ↓
 Structured JSON response (score, strengths, gaps, resume, cover letter)
         ↓

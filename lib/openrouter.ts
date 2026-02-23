@@ -1,9 +1,8 @@
 import type { AnalysisResult, JobInfo } from "@/types"
 import { buildPrompt } from "@/lib/prompts"
 
-// router.huggingface.co is the current required endpoint (api-inference.huggingface.co was retired)
-const HF_API_URL = "https://router.huggingface.co/v1/chat/completions"
-const MODEL = "Qwen/Qwen2.5-72B-Instruct"
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+const MODEL = "llama-3.3-70b-versatile"
 
 /** Extracts a JSON object from a string that may contain markdown code fences. */
 function extractJSON(text: string): string {
@@ -22,22 +21,20 @@ export async function analyzeResume(
   jobInfo: JobInfo,
   currentDate: string
 ): Promise<AnalysisResult> {
-  const apiKey = process.env.HUGGINGFACE_API_KEY
-  if (!apiKey || apiKey === "your_huggingface_api_key_here") {
+  const apiKey = process.env.GROQ_API_KEY
+  if (!apiKey || apiKey === "your_groq_api_key_here") {
     throw new Error(
-      "HUGGINGFACE_API_KEY is not configured. Please add your API key to .env.local"
+      "GROQ_API_KEY is not configured. Please add your Groq API key to your environment settings."
     )
   }
 
   const { system, user } = buildPrompt(resumeText, jobInfo, currentDate)
 
-  const response = await fetch(HF_API_URL, {
+  const response = await fetch(GROQ_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
-      // Queue the request if the model is warming up instead of returning an instant 503
-      "x-wait-for-model": "true",
     },
     body: JSON.stringify({
       model: MODEL,
@@ -46,7 +43,7 @@ export async function analyzeResume(
         { role: "user", content: user },
       ],
       temperature: 0.3,
-      max_tokens: 4096,
+      max_tokens: 8192,
     }),
   })
 
@@ -55,28 +52,27 @@ export async function analyzeResume(
 
     if (response.status === 401) {
       throw new Error(
-        "Invalid HuggingFace API key. Please verify HUGGINGFACE_API_KEY in your environment settings."
+        "Invalid Groq API key. Please verify GROQ_API_KEY in your environment settings."
       )
     }
-    if (response.status === 402 || response.status === 403) {
+    if (response.status === 403) {
       throw new Error(
-        "Your HuggingFace account does not have access to this model. " +
-        "Ensure your API key is valid and that you have accepted the model license on HuggingFace."
+        "Access denied. Please verify your Groq API key is valid."
       )
     }
     if (response.status === 429) {
       throw new Error(
-        "HuggingFace rate limit reached. Please wait a moment and try again."
+        "Rate limit reached. Please wait a moment and try again."
       )
     }
     if (response.status === 503) {
       throw new Error(
-        "The AI model is currently loading. Please wait 20-30 seconds and try again."
+        "The AI service is temporarily unavailable. Please try again in a moment."
       )
     }
 
     throw new Error(
-      `HuggingFace API error ${response.status}: ${errorText.slice(0, 300)}`
+      `AI API error ${response.status}: ${errorText.slice(0, 300)}`
     )
   }
 
